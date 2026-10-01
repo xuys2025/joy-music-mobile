@@ -2,10 +2,12 @@
  * Application configuration
  */
 
+import { expo } from '../../app.json'
+
 export const appConfig = {
   // App info
   name: '悦音',
-  version: '1.2.10',
+  version: expo.version,
   description: 'A modern music player for iOS',
 
   // Display

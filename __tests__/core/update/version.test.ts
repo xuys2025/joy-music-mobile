@@ -13,3 +13,12 @@ describe('version utils', () => {
     expect(compareVersion('1.10.0', '1.9.9')).toBeGreaterThan(0)
   })
 })
+
+// The About screen and IPA must use one version source.
+test('application display version matches the build manifest', () => {
+  const { appConfig } = require('../../../src/config')
+  const { expo } = require('../../../app.json')
+  const pkg = require('../../../package.json')
+  expect(appConfig.version).toBe(expo.version)
+  expect(pkg.version).toBe(expo.version)
+})

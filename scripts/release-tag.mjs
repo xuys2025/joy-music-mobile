@@ -20,15 +20,6 @@ function replaceWithCheck(source, matcher, replacer, filePath, label) {
   return source.replace(matcher, replacer)
 }
 
-function updateConfigVersion(filePath, version) {
-  const source = fs.readFileSync(filePath, 'utf8')
-  const matcher = /version:\s*'[^']*'/
-  const updated = replaceWithCheck(source, matcher, `version: '${version}'`, filePath, 'version 字段')
-  if (updated !== source) {
-    fs.writeFileSync(filePath, updated, 'utf8')
-  }
-}
-
 function updatePackageVersion(filePath, version) {
   const source = fs.readFileSync(filePath, 'utf8')
   const matcher = /("version"\s*:\s*")[^"]*(")/
@@ -62,13 +53,18 @@ function main() {
   const root = process.cwd()
   const packageJsonPath = path.join(root, 'package.json')
   const appJsonPath = path.join(root, 'app.json')
-  const configPath = path.join(root, 'src/config/index.ts')
 
   updatePackageVersion(packageJsonPath, version)
   // 统一把 app.json 的 version/buildNumber 与发版号对齐，便于发布追踪。
   updateAppVersions(appJsonPath, version)
-  // 同步应用内“当前版本”显示字段，避免检查更新时版本漂移。
-  updateConfigVersion(configPath, version)
+  // 应用内版本直接读取 app.json；更新锁文件的项目版本。
+  const lockPath = path.join(root, 'package-lock.json')
+  if (fs.existsSync(lockPath)) {
+    const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
+    lock.version = version
+    if (lock.packages?.['']) lock.packages[''].version = version
+    fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n')
+  }
 
   const tagName = `v${version}`
   console.log(`Updated version files to ${version}`)
@@ -76,7 +72,7 @@ function main() {
   console.log('Touched files:')
   console.log('- package.json')
   console.log('- app.json')
-  console.log('- src/config/index.ts')
+  console.log('- package-lock.json')
 }
 
 main()
