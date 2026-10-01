@@ -27,6 +27,11 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         config.userContentController.add(self, name: "lyrics")
         let bridge = """
         window.ReactNativeWebView={postMessage:function(message){window.webkit.messageHandlers.lyrics.postMessage(message)}};
+        function reportCallbackError(error,phase){window.webkit.messageHandlers.lyrics.postMessage(JSON.stringify({type:'diagnostic',phase:phase,message:String(error),stack:error && error.stack}))}
+        var nativeRaf=window.requestAnimationFrame.bind(window);
+        window.requestAnimationFrame=function(callback){return nativeRaf(function(time){try{callback(time)}catch(error){reportCallbackError(error,'animation')}})};
+        var NativeObserver=window.ResizeObserver;
+        window.ResizeObserver=class extends NativeObserver{constructor(callback){super(function(entries,observer){try{callback(entries,observer)}catch(error){reportCallbackError(error,'resize')}})}};
         window.addEventListener('error',function(e){window.webkit.messageHandlers.lyrics.postMessage(JSON.stringify({type:'diagnostic',message:e.message || 'unknown',stack:e.error && e.error.stack}))});
         window.addEventListener('unhandledrejection',function(e){window.webkit.messageHandlers.lyrics.postMessage(JSON.stringify({type:'diagnostic',message:String(e.reason),stack:e.reason && e.reason.stack}))});
         """
