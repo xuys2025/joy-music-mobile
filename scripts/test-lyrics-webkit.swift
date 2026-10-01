@@ -1,12 +1,20 @@
 // Integration test of the bundled lyric page using Apple's actual WebKit engine.
 // Only synthetic lyrics are loaded. No network requests or user media.
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WebKit
 
 @MainActor
 final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var web: WKWebView!
+#if os(macOS)
     var window: NSWindow!
+#else
+    var window: UIWindow!
+#endif
     var ready = false
     var seek = false
     var errors: [String] = []
@@ -23,11 +31,19 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         window.addEventListener('unhandledrejection',function(e){window.webkit.messageHandlers.lyrics.postMessage(JSON.stringify({type:'diagnostic',message:String(e.reason),stack:e.reason && e.reason.stack}))});
         """
         config.userContentController.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 390, height: 640), configuration: config)
+        web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 640), configuration: config)
         web.navigationDelegate = self
+#if os(macOS)
         window = NSWindow(contentRect: web.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = web
         window.orderFrontRegardless()
+#else
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 640))
+        let controller = UIViewController()
+        controller.view = web
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+#endif
     }
 
     func fail(_ message: String) -> Never {
@@ -90,10 +106,14 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             guard let result = result as? [String: Any], let text = result["text"] as? String,
                   text.contains("晨光"), text.contains("Morning light"), result["theme"] as? String == "light" else { self.fail("Lyrics not rendered: \(String(describing: result))") }
             self.web.takeSnapshot(with: nil) { image, error in
+#if os(macOS)
                 if let image = image, let tiff = image.tiffRepresentation,
                    let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) {
                     try? png.write(to: self.output)
                 }
+#else
+                if let png = image?.pngData() { try? png.write(to: self.output) }
+#endif
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     guard self.seek else { self.fail("Click did not reach the native bridge") }
                     guard self.errors.isEmpty else { self.fail("Page errors: \(self.errors)") }
@@ -106,6 +126,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 }
 
+#if os(macOS)
 @main
 struct Main {
     @MainActor static func main() throws {
@@ -120,3 +141,19 @@ struct Main {
         RunLoop.main.run()
     }
 }
+
+#else
+@main
+@MainActor
+final class AppDelegate: UIResponder, UIApplicationDelegate {
+    var harness: LyricHarness!
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        let path = Bundle.main.url(forResource: "lyrics", withExtension: "html")!
+        harness = LyricHarness(output: URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/lyrics-webkit.png"))
+        let html = try! String(contentsOf: path, encoding: .utf8)
+        harness.web.loadHTMLString(html, baseURL: URL(string: "about:blank"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self.harness.fail("Timed out; ready=\(self.harness.ready), errors=\(self.harness.errors)") }
+        return true
+    }
+}
+#endif

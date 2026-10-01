@@ -16,6 +16,8 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
+      - name: Run actual iOS WebKit integration
+        run: bash scripts/test-lyrics-ios.sh
       - name: Run actual Apple WebKit integration
         run: |
           swiftc -parse-as-library scripts/test-lyrics-webkit.swift -o /tmp/test-lyrics-webkit
@@ -24,5 +26,8 @@ jobs:
         if: always()
         with:
           name: lyrics-webkit-evidence
-          path: /tmp/lyrics-webkit.png
+          path: |
+            /tmp/lyrics-webkit.png
+            /tmp/lyrics-ios.png
+            /tmp/lyrics-ios.log
           if-no-files-found: ignore
