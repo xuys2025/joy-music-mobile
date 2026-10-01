@@ -18,7 +18,7 @@ jobs:
       - run: npm ci
       - name: Run actual Apple WebKit integration
         run: |
-          swiftc scripts/test-lyrics-webkit.swift -o /tmp/test-lyrics-webkit
+          swiftc -parse-as-library scripts/test-lyrics-webkit.swift -o /tmp/test-lyrics-webkit
           /tmp/test-lyrics-webkit src/components/lyrics/generated/lyrics.html /tmp/lyrics-webkit.png
       - uses: actions/upload-artifact@v4
         if: always()

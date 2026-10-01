@@ -106,12 +106,17 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 }
 
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let args = CommandLine.arguments
-if args.count != 3 { print("Usage: test-lyrics-webkit HTML SNAPSHOT"); exit(2) }
-let harness = LyricHarness(output: URL(fileURLWithPath: args[2]))
-let html = try String(contentsOfFile: args[1], encoding: .utf8)
-harness.web.loadHTMLString(html, baseURL: URL(string: "about:blank"))
-DispatchQueue.main.asyncAfter(deadline: .now() + 20) { harness.fail("Timed out; ready=\(harness.ready), errors=\(harness.errors)") }
-RunLoop.main.run()
+@main
+struct Main {
+    @MainActor static func main() throws {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let args = CommandLine.arguments
+        if args.count != 3 { print("Usage: test-lyrics-webkit HTML SNAPSHOT"); exit(2) }
+        let harness = LyricHarness(output: URL(fileURLWithPath: args[2]))
+        let html = try String(contentsOfFile: args[1], encoding: .utf8)
+        harness.web.loadHTMLString(html, baseURL: URL(string: "about:blank"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { harness.fail("Timed out; ready=\(harness.ready), errors=\(harness.errors)") }
+        RunLoop.main.run()
+    }
+}
