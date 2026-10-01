@@ -21,4 +21,8 @@ test('application display version matches the build manifest', () => {
   const pkg = require('../../../package.json')
   expect(appConfig.version).toBe(expo.version)
   expect(pkg.version).toBe(expo.version)
+  expect(expo.ios.buildNumber).toBe(expo.version)
+  const lock = require('../../../package-lock.json')
+  expect(lock.version).toBe(expo.version)
+  expect(lock.packages[''].version).toBe(expo.version)
 })

@@ -15,8 +15,13 @@ type Message = { type: 'lines'; lines: LyricLine[]; position: number }
   | { type: 'theme'; dark: boolean; reducedMotion: boolean }
 
 function send(message: object) { window.ReactNativeWebView?.postMessage(JSON.stringify(message)) }
-window.addEventListener('error', () => send({ type: 'error' }))
-window.addEventListener('unhandledrejection', () => send({ type: 'error' }))
+window.addEventListener('error', event => {
+  // ResizeObserver reports deferred layout notifications as an ErrorEvent.
+  // The next frame delivers them; this is not a renderer failure.
+  if (/^ResizeObserver loop (completed with undelivered notifications\.|limit exceeded)/.test(event.message)) return
+  send({ type: 'error', phase: 'runtime' })
+})
+window.addEventListener('unhandledrejection', () => send({ type: 'error', phase: 'runtime' }))
 
 const player = new LyricPlayer()
 document.getElementById('lyrics')!.appendChild(player.getElement())
@@ -67,7 +72,7 @@ window.receiveLyrics = message => {
       player.setEnableSpring(!reducedMotion)
     }
     wake()
-  } catch { send({ type: 'error' }) }
+  } catch { send({ type: 'error', phase: message.type }) }
 }
 player.addEventListener('line-click', event => {
   const lineEvent = event as LyricLineMouseEvent

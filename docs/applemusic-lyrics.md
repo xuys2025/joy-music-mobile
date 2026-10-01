@@ -28,7 +28,11 @@ npx tsc --noEmit
 npx expo export --platform ios
 ```
 
-已通过 27 项回归测试、TypeScript 检查及完整网页包的 DOM 冒烟测试（初始化、歌词结构、文本安全、点击跳转、主题、可见性与许可）。DOM 测试模拟布局相关 API，不等同于 iOS Safari/真机视觉测试。
+已通过 28 项回归测试、TypeScript 检查及完整网页包的 DOM 冒烟测试（初始化、歌词结构、文本安全、点击跳转、主题、可见性、许可，以及可恢复布局通知与真实错误的区分）。DOM 测试模拟布局相关 API，不等同于真机视觉测试。
+
+新增 `scripts/test-lyrics-webkit.swift`：在 macOS 和 iOS 模拟器的真实 WKWebView 内加载同一份编译 HTML，验证启动、原生注入、歌词/译文渲染、主题和点击跳转，并保存截图。`lyrics-webkit-check.yml` 自动执行两种环境；IPA 构建也先执行 iOS WebKit 检查。测试使用合成歌词，不携带音源密钥或用户数据。仍不能替代用户设备上包含 React Native 容器的完整播放器测试。
+
+1.2.11 曾遗漏应用内硬编码版本（仍显示 1.2.10），并未同步 iOS buildNumber。1.2.12 将应用内版本直接读取 app.json，发版脚本同步 package.json、锁文件和 iOS buildNumber，自动校验一致性。歌词加载结束再次握手，布局的 ResizeObserver 延迟通知不再触发原生回退；失败时显示安全的阶段提示并提供重试。用户截图中的回退未在 macOS WebKit 重现，不能仅凭版本显示或这些防护修改声称用户设备问题已经解决。
 
 未签名 IPA 在本 fork 的 `ios-unsigned-ipa.yml` 中构建，发布标签必须指向此功能分支的提交。
 

@@ -24,7 +24,7 @@ export default function LyricsView({ lyrics, position, duration = 0, isPlaying =
   const { isDark, colors } = useTheme()
   const web = useRef<WebView>(null)
   const [ready, setReady] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
   const [foreground, setForeground] = useState(AppState.currentState === 'active')
   const [reducedMotion, setReducedMotion] = useState(false)
   const [screenReader, setScreenReader] = useState(false)
@@ -45,7 +45,7 @@ export default function LyricsView({ lyrics, position, duration = 0, isPlaying =
   useEffect(() => { if (!hasLyrics || screenReader) setReady(false) }, [hasLyrics, screenReader])
   useEffect(() => {
     if (!hasLyrics || ready || failed || screenReader || !foreground) return
-    const timer = setTimeout(() => setFailed(true), 8000)
+    const timer = setTimeout(() => setFailed('启动超时'), 12000)
     return () => clearTimeout(timer)
   }, [hasLyrics, ready, failed, screenReader, foreground])
   useEffect(() => {
@@ -60,7 +60,10 @@ export default function LyricsView({ lyrics, position, duration = 0, isPlaying =
     try {
       const message = JSON.parse(event.nativeEvent.data)
       if (message.type === 'ready') setReady(true)
-      else if (message.type === 'error') setFailed(true)
+      else if (message.type === 'error') {
+        const phases: Record<string, string> = { startup: '初始化', runtime: '脚本运行', lines: '歌词加载', clock: '播放同步', theme: '主题设置' }
+        setFailed(phases[message.phase] || '页面运行')
+      }
       else if (message.type === 'seek' && typeof message.time === 'number' && Number.isFinite(message.time)
         && message.time >= 0 && (!current.current.duration || message.time <= current.current.duration)) {
         if (!current.current.active) return
@@ -70,19 +73,29 @@ export default function LyricsView({ lyrics, position, duration = 0, isPlaying =
     } catch { /* Ignore malformed WebView messages. */ }
   }, [onSeek, send])
 
-  if (!hasLyrics || failed || screenReader) return <NativeLyricsView lyrics={lyrics} position={position} loading={loading} active={active} onSeek={onSeek} />
+  if (!hasLyrics || failed || screenReader) return (
+    <View style={styles.container}>
+      <NativeLyricsView lyrics={lyrics} position={position} loading={loading} active={active} onSeek={onSeek} />
+      {failed && hasLyrics && !screenReader && (
+        <TouchableOpacity accessibilityRole="button" style={styles.retry} onPress={() => { setReady(false); setFailed(null) }}>
+          <Text style={[styles.creditText, { color: colors.textSecondary }]}>高级歌词不可用（{failed}） · 轻点重试</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  )
   return (
     <View style={styles.container}>
       <WebView
-        ref={web} source={source} originWhitelist={['about:blank']} onMessage={onMessage}
+        ref={web} source={source} originWhitelist={['*']} onMessage={onMessage}
         style={styles.web} containerStyle={styles.web} scrollEnabled={false}
         onLoadStart={() => setReady(false)}
+        onLoadEnd={() => web.current?.injectJavaScript("if (typeof window.receiveLyrics === 'function') window.ReactNativeWebView?.postMessage(JSON.stringify({type:'ready'})); true;")}
         javaScriptEnabled domStorageEnabled={false} cacheEnabled={false} bounces={false}
         dataDetectorTypes="none" allowsInlineMediaPlayback={false}
         onShouldStartLoadWithRequest={request => request.url === 'about:blank'}
-        onError={() => setFailed(true)} onHttpError={() => setFailed(true)}
-        onContentProcessDidTerminate={() => setFailed(true)}
-        onRenderProcessGone={() => setFailed(true)}
+        onError={() => setFailed('网页加载')} onHttpError={() => setFailed('网页加载')}
+        onContentProcessDidTerminate={() => setFailed('渲染进程退出')}
+        onRenderProcessGone={() => setFailed('渲染进程退出')}
         accessibilityLabel="同步歌词，轻点歌词跳转播放"
       />
       <View style={styles.credit}>
@@ -101,4 +114,5 @@ const styles = StyleSheet.create({
   container: { flex: 1 }, web: { flex: 1, backgroundColor: 'transparent' },
   credit: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 8 },
   creditText: { fontSize: 10, opacity: 0.7 },
+  retry: { alignItems: 'center', paddingVertical: 8 },
 })

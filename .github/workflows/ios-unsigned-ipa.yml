@@ -64,6 +64,19 @@ jobs:
           npm run test:lyrics:web
           npx tsc --noEmit
 
+      - name: Validate actual iOS WebKit renderer
+        run: bash scripts/test-lyrics-ios.sh
+
+      - name: Upload lyric WebKit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrics-ios-webkit-evidence
+          path: |
+            /tmp/lyrics-ios.png
+            /tmp/lyrics-ios.log
+          if-no-files-found: ignore
+
       - name: Install iOS gems
         run: bundle install --jobs 4 --retry 3
 
@@ -169,6 +182,10 @@ jobs:
           fi
 
           cp -R "${APP_PATH}" dist/Payload/
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP_PATH}/Info.plist")" = "${APP_VERSION}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP_PATH}/Info.plist")" = "${APP_VERSION}"
+          test ! -d "${APP_PATH}/_CodeSignature"
+          test ! -f "${APP_PATH}/embedded.mobileprovision"
           (
             cd dist
             /usr/bin/zip -qry "../${IPA_NAME}" Payload
