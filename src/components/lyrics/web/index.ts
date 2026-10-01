@@ -3,6 +3,7 @@ import { LyricPlayer, type LyricLine, type LyricLineMouseEvent } from '@applemus
 import '@applemusic-like-lyrics/core/style.css'
 import './style.css'
 import { PlaybackClock, type PlaybackState } from '../protocol'
+import { deferResizeObserverDelivery } from './resizeObserver'
 
 declare global {
   interface Window {
@@ -22,6 +23,7 @@ window.addEventListener('error', event => {
   send({ type: 'error', phase: 'runtime' })
 })
 window.addEventListener('unhandledrejection', () => send({ type: 'error', phase: 'runtime' }))
+deferResizeObserverDelivery(() => send({ type: 'error', phase: 'layout' }))
 
 const player = new LyricPlayer()
 document.getElementById('lyrics')!.appendChild(player.getElement())

@@ -17,6 +17,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 #endif
     var ready = false
     var seek = false
+    var cycles = 0
     var errors: [String] = []
     let output: URL
 
@@ -110,6 +111,14 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let error = error { self.fail("DOM assertions: \(error)") }
             guard let result = result as? [String: Any], let text = result["text"] as? String,
                   text.contains("晨光"), text.contains("Morning light"), result["theme"] as? String == "light" else { self.fail("Lyrics not rendered: \(String(describing: result))") }
+            guard self.seek else { self.fail("Click did not reach the native bridge") }
+            guard self.errors.isEmpty else { self.fail("Page errors: \(self.errors)") }
+            self.cycles += 1
+            if self.cycles < 3 {
+                self.seek = false
+                self.exercise()
+                return
+            }
             self.web.takeSnapshot(with: nil) { image, error in
 #if os(macOS)
                 if let image = image, let tiff = image.tiffRepresentation,
@@ -122,7 +131,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     guard self.seek else { self.fail("Click did not reach the native bridge") }
                     guard self.errors.isEmpty else { self.fail("Page errors: \(self.errors)") }
-                    print("WEBKIT PASSED: ready, native injection, rendered lyrics/translation, theme, seek and snapshot")
+                    print("WEBKIT PASSED: ready, native injection, rendered lyrics/translation, theme, seek and snapshot across 3 reload/sync cycles")
                     fflush(stdout)
                     exit(0)
                 }

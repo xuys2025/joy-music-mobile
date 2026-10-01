@@ -34,6 +34,8 @@ npx expo export --platform ios
 
 1.2.11 曾遗漏应用内硬编码版本（仍显示 1.2.10），并未同步 iOS buildNumber。1.2.12 将应用内版本直接读取 app.json，发版脚本同步 package.json、锁文件和 iOS buildNumber，自动校验一致性。歌词加载结束再次握手，布局的 ResizeObserver 延迟通知不再触发原生回退；失败时显示安全的阶段提示并提供重试。用户截图中的回退未在 macOS WebKit 重现，不能仅凭版本显示或这些防护修改声称用户设备问题已经解决。
 
+后续真实 WebKit 检查发现 iOS 和 macOS 都可能偶发报告不含堆栈的 `Script error.`；仅忽略已知布局通知不足以稳定解决。新增 `web/resizeObserver.ts`，将 AMLL 的尺寸回调合并到下一动画帧，避免在 ResizeObserver 通知阶段反复改写 DOM。断开观察时取消待执行工作；真正的回调异常仍上报并回退。测试覆盖延迟、合并、取消，以及每种 WebKit 环境连续三轮歌词重载、播放同步和跳转。用户设备的完整容器仍需安装后验证；`Script error.` 的完整原始堆栈未取得。
+
 未签名 IPA 在本 fork 的 `ios-unsigned-ipa.yml` 中构建，发布标签必须指向此功能分支的提交。
 
 ## 许可与源码

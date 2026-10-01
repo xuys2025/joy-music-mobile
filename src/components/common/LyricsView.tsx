@@ -61,7 +61,7 @@ export default function LyricsView({ lyrics, position, duration = 0, isPlaying =
       const message = JSON.parse(event.nativeEvent.data)
       if (message.type === 'ready') setReady(true)
       else if (message.type === 'error') {
-        const phases: Record<string, string> = { startup: '初始化', runtime: '脚本运行', lines: '歌词加载', clock: '播放同步', theme: '主题设置' }
+        const phases: Record<string, string> = { startup: '初始化', runtime: '脚本运行', layout: '布局计算', lines: '歌词加载', clock: '播放同步', theme: '主题设置' }
         setFailed(phases[message.phase] || '页面运行')
       }
       else if (message.type === 'seek' && typeof message.time === 'number' && Number.isFinite(message.time)
