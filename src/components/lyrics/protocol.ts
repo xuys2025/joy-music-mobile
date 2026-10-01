@@ -11,7 +11,8 @@ export interface PlaybackState {
   seek?: boolean
 }
 
-/** Only real word timings are sent to AMLL; an LRC line stays one word. */
+/** Only real word timings are sent to AMLL. A zero-duration fallback atom
+ * selects line highlighting in our build adapter; no estimated word span. */
 export function toRenderLines(lines: LyricLine[], duration = 0): RenderLine[] {
   return lines.filter(line => Number.isFinite(line.time) && line.time >= 0 && line.text.trim())
     .map((line, index, valid) => {
@@ -23,7 +24,7 @@ export function toRenderLines(lines: LyricLine[], duration = 0): RenderLine[] {
         startTime: line.time, endTime: end,
         words: words?.length === line.words?.length && words?.length
           ? words.map(word => ({ word: word.text, startTime: word.startTime, endTime: word.endTime }))
-          : [{ word: line.text, startTime: line.time, endTime: end }],
+          : [{ word: line.text, startTime: line.time, endTime: line.time }],
         translatedLyric: line.translation || '', romanLyric: line.romanLyric || '', isBG: !!line.isBG, isDuet: !!line.isDuet,
       }
     })

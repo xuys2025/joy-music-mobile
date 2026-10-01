@@ -66,7 +66,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         switch value["type"] as? String {
         case "diagnostic": errors.append(text)
         case "error": errors.append(text)
-        case "seek": seek = true
+        case "seek": seek = value["time"] as? Int == 1000
         case "ready":
             guard !ready else { return }
             ready = true
@@ -88,8 +88,8 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         let fixture = """
         window.receiveLyrics({type:'theme',dark:false,reducedMotion:false});
         window.receiveLyrics({type:'lines',position:1200,lines:[
-        {startTime:1000,endTime:3500,isBG:false,isDuet:false,translatedLyric:'Morning light',romanLyric:'',words:[{word:'晨光',startTime:1000,endTime:2300},{word:'照亮',startTime:2300,endTime:3500}]},
-        {startTime:4000,endTime:8000,isBG:false,isDuet:false,translatedLyric:'Walking slowly',romanLyric:'',words:[{word:'慢慢向前走',startTime:4000,endTime:8000}]}
+        {startTime:1000,endTime:3500,isBG:false,isDuet:false,translatedLyric:'Morning light',romanLyric:'',words:[{word:'晨光',startTime:1200,endTime:2300},{word:'照亮',startTime:2300,endTime:3500}]},
+        {startTime:4000,endTime:8000,isBG:false,isDuet:false,translatedLyric:'Walking slowly',romanLyric:'',words:[{word:'慢慢向前走',startTime:4000,endTime:4000}]}
         ]});
         window.receiveLyrics({type:'clock',state:{position:1200,duration:8000,playing:true,active:true}});
         true;
@@ -105,13 +105,16 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         var row=document.querySelector('[class*="_lyricLineWrapper"]:not([class*="_bottomLineWrapper"])');
         if(row)row.dispatchEvent(new MouseEvent('click',{bubbles:true}));
         window.receiveLyrics({type:'clock',state:{position:1500,duration:8000,playing:false,active:false}});
-        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,rows:document.querySelectorAll('[class*="_lyricLineWrapper"]').length});
+        var rows=Array.from(document.querySelectorAll('[class*="_lyricLineWrapper"]:not([class*="_bottomLineWrapper"])'));
+        var fallback=rows.find(function(r){return r.textContent.includes('慢慢向前走')});
+        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,fallbackPlain:!!fallback && fallback.children[0].querySelectorAll('span').length===0});
         """
         web.evaluateJavaScript(script) { result, error in
             if let error = error { self.fail("DOM assertions: \(error)") }
             guard let result = result as? [String: Any], let text = result["text"] as? String,
                   text.contains("晨光"), text.contains("Morning light"), result["theme"] as? String == "light" else { self.fail("Lyrics not rendered: \(String(describing: result))") }
             guard self.seek else { self.fail("Click did not reach the native bridge") }
+            guard result["fallbackPlain"] as? Bool == true else { self.fail("Untimed mixed row acquired inferred word masks") }
             guard self.errors.isEmpty else { self.fail("Page errors: \(self.errors)") }
             self.cycles += 1
             if self.cycles < 3 {

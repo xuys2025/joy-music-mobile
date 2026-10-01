@@ -7,6 +7,7 @@ const source = await readFile(new URL('../src/components/lyrics/generated/lyrics
 const html = JSON.parse(source.slice(source.indexOf('= ') + 2).trim())
 const messages = []
 const errors = []
+const animations = []
 const frames = new Map()
 let nextFrame = 0
 const console = new VirtualConsole()
@@ -29,7 +30,10 @@ const dom = new JSDOM(html, {
     }
     window.requestAnimationFrame = fn => { const id = ++nextFrame; frames.set(id, fn); return id }
     window.cancelAnimationFrame = id => frames.delete(id)
-    window.Element.prototype.animate = () => ({ play() {}, pause() {}, cancel() {}, finish() {}, currentTime: 0, effect: { getComputedTiming: () => ({ progress: 0 }) }, finished: new Promise(() => {}) })
+    window.Element.prototype.animate = function (keyframes, options) {
+      animations.push({ element: this, keyframes, options })
+      return { id: options?.id || '', play() {}, pause() {}, cancel() {}, finish() {}, currentTime: 0, effect: { getComputedTiming: () => ({ progress: 0 }) }, finished: new Promise(() => {}) }
+    }
   },
 })
 const window = dom.window
@@ -58,6 +62,34 @@ window.receiveLyrics({ type: 'theme', dark: false, reducedMotion: true })
 assert.equal(window.document.documentElement.dataset.theme, 'light')
 window.receiveLyrics({ type: 'clock', state: { position: 1200, duration: 4000, playing: true, active: false } })
 assert.equal(frames.size, 0, 'leaving lyrics cancels animation')
+assert.equal(messages.some(message => message.type === 'error'), false)
+// Exercise the actual renderer with mixed native timing + an untimed row.
+// Chinese groups and English phrases must stay source atoms; a fallback row
+// must have plain text and no word mask, even while other rows are dynamic.
+animations.length = 0
+window.receiveLyrics({ type: 'lines', position: 1000, lines: [
+  { startTime: 1000, endTime: 3500, isBG: false, isDuet: false, translatedLyric: '', romanLyric: '',
+    words: [{ word: '晨光', startTime: 1200, endTime: 1500 }, { word: ' I only wanna', startTime: 1500, endTime: 2800 }] },
+  { startTime: 4000, endTime: 7000, isBG: false, isDuet: false, translatedLyric: '', romanLyric: '',
+    words: [{ word: '整行回退 complete line', startTime: 4000, endTime: 4000 }] },
+] })
+window.receiveLyrics({ type: 'clock', state: { position: 4500, duration: 8000, playing: false, active: true, seek: true } })
+for (let index = 0; index < 60; index++) {
+  const pending = [...frames.values()]; frames.clear()
+  pending.forEach(fn => fn(window.performance.now() + index * 16))
+  await Promise.resolve()
+}
+const lyricRows = [...window.document.querySelectorAll('[class*="_lyricLineWrapper"]:not([class*="_bottomLineWrapper"])')]
+const fallbackRow = lyricRows.find(row => row.textContent.includes('整行回退'))
+assert.ok(fallbackRow, 'mixed fallback row remains visible')
+assert.equal(fallbackRow.firstElementChild.querySelectorAll('span').length, 0, 'fallback row has no inferred word masks')
+const masks = animations.filter(animation => animation.options?.id?.startsWith('fade-word-'))
+assert.ok(masks.some(animation => animation.options.id === 'fade-word-晨光-0'), 'keeps the native Chinese atom intact')
+assert.ok(masks.some(animation => animation.options.id === 'fade-word-I only wanna-1'), 'keeps the native English phrase intact')
+assert.ok(masks.every(animation => animation.options.duration === 2500), 'preserves the source line end instead of shortening it to the last word')
+assert.equal(masks.some(animation => /fade-word-(晨-|光-|only-|wanna-|整行回退)/.test(animation.options.id)), false, 'never invents subword masks')
+lyricRows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+assert.equal(messages.at(-1)?.time, 1000, 'source line time is not reset to the first word time')
 assert.equal(messages.some(message => message.type === 'error'), false)
 const batches = []
 const observer = new window.ResizeObserver(entries => batches.push(entries))

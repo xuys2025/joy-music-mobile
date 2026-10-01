@@ -9,6 +9,13 @@ const timed = baseline.map(line => ({ ...line, endTime: line.time + 1000,
     { text: line.text.slice(1), startTime: line.time + 500, endTime: line.time + 1000 }] }))
 const track: Track = { id: '1', source: 'kw', title: 'Song (Live)', artist: 'A / B', album: 'Album', duration: 15000, url: '' }
 
+test('mixed untimed rows have no estimated word interval at the renderer bridge', () => {
+  const rows = toRenderLines([timed[0], baseline[1]], 15000)
+  expect(rows[0].words.map(word => [word.startTime, word.endTime])).toEqual([[1000, 1500], [1500, 2000]])
+  expect(rows[1].words).toEqual([{ word: '第二句', startTime: 4000, endTime: 4000 }])
+  expect(rows[1].endTime).toBe(15000)
+})
+
 test('same text is insufficient: verify timing throughout the song', () => {
   expect(verifiedTimeline(timed, baseline, 15000)).toBe(true)
   expect(verifiedTimeline(timed.map(line => ({ ...line, time: line.time + 600 })), baseline, 15000)).toBe(false)

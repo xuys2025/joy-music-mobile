@@ -3,12 +3,14 @@ import { build } from 'esbuild'
 import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { accurateTimingPlugin } from './amll-accurate-timing.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const result = await build({
   absWorkingDir: root, entryPoints: ['src/components/lyrics/web/index.ts'],
   bundle: true, write: false, outdir: 'lyrics-bundle', format: 'iife',
   metafile: true, platform: 'browser', target: ['safari15.4'], minify: true, legalComments: 'inline',
+  plugins: [accurateTimingPlugin],
 })
 const js = result.outputFiles.find(file => file.path.endsWith('.js')).text.replace(/<\/script/gi, '<\\/script')
 const css = result.outputFiles.find(file => file.path.endsWith('.css')).text.replace(/<\/style/gi, '<\\/style')

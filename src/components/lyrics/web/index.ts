@@ -26,6 +26,10 @@ window.addEventListener('unhandledrejection', () => send({ type: 'error', phase:
 deferResizeObserverDelivery(() => send({ type: 'error', phase: 'layout' }))
 
 const player = new LyricPlayer()
+// Keep source timestamps, spaces and simultaneous vocals intact. Layout
+// animation is allowed; guessed offsets or reconstructed word times are not.
+player.setOptimizeOptions({ normalizeSpaces: false, resetLineTimestamps: false,
+  syncMainAndBackgroundLines: false, cleanUnintentionalOverlaps: false, tryAdvanceStartTime: false })
 document.getElementById('lyrics')!.appendChild(player.getElement())
 player.setAlignPosition(0.34)
 player.setEnableAutoSeekDetection(false)

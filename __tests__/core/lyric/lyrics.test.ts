@@ -28,7 +28,7 @@ describe('real lyric timings and graceful LRC conversion', () => {
   })
   test('invalid word timestamps fall back as a whole line', () => {
     expect(toRenderLines([{ time: 1000, text: '歌词', words: [{ text: '词', startTime: -1, endTime: 1000 }] }])[0].words)
-      .toEqual([{ word: '歌词', startTime: 1000, endTime: 6000 }])
+      .toEqual([{ word: '歌词', startTime: 1000, endTime: 1000 }])
   })
   test('never executes lyric text in the bridge', () => {
     const value = { type: 'lines', text: '</script>\"; globalThis.attack = true; //\n\u2028你好\\' }
