@@ -108,8 +108,10 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         var rows=Array.from(document.querySelectorAll('[class*="_lyricLineWrapper"]:not([class*="_bottomLineWrapper"])'));
         var fallback=rows.find(function(r){return r.textContent.includes('慢慢向前走')});
         var timed=rows.find(function(r){return r.textContent.includes('晨光')});
-        var spacePlain=!!timed && Array.from(timed.children[0].childNodes).some(function(n){return n.nodeType===3 && n.textContent===' '}) && !Array.from(timed.children[0].querySelectorAll('span')).some(function(n){return n.textContent.length>0 && !n.textContent.trim()});
-        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,spacePlain:spacePlain,fallbackPlain:!!fallback && fallback.children[0].querySelectorAll('span').length===0});
+        var timedMain=timed && timed.querySelector('[class*="_lyricMainLine"]');
+        var fallbackMain=fallback && fallback.querySelector('[class*="_lyricMainLine"]');
+        var spacePlain=!!timedMain && timedMain.textContent==='晨光 照亮' && Array.from(timedMain.childNodes).some(function(n){return n.nodeType===3 && n.textContent===' '}) && !Array.from(timedMain.querySelectorAll('span')).some(function(n){return n.textContent.length>0 && !n.textContent.trim()});
+        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,spacePlain:spacePlain,fallbackPlain:!!fallbackMain && fallbackMain.textContent==='慢慢向前走' && fallbackMain.querySelectorAll('span').length===0});
         """
         web.evaluateJavaScript(script) { result, error in
             if let error = error { self.fail("DOM assertions: \(error)") }
