@@ -4,7 +4,7 @@ import type { Track } from '../../../src/types/music'
 
 jest.mock('../../../src/core/discover/wyCrypto', () => ({ wyRequest: jest.fn() }))
 const request = wyRequest as jest.Mock
-const track: Track = { id: 'test-song', songmid: 'test-song', source: 'wy', title: 'Fixture', artist: 'Fixture', duration: 10, url: '' }
+const track: Track = { id: 'test-song', songmid: 'test-song', source: 'wy', title: 'Fixture', artist: 'Fixture', duration: 10000, url: '' }
 const lrc = '[00:01]你好\n[00:03]世界'
 beforeEach(() => request.mockReset())
 

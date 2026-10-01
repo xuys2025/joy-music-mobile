@@ -5,10 +5,14 @@
  */
 
 import { Track } from '../../types/music'
-import { LyricLine, parseLrc, parseTimedLyric, mergeLyricTranslation } from './parser'
+import { LyricLine, parseLrc, parseTimedLyric, parseKrc, parseKwWords, mergeLyricTranslation } from './parser'
 import { wyRequest } from '../discover/wyCrypto'
 import { inflate } from 'pako'
 import { decodeByIconvCompat } from './iconvCompat'
+import { decodeKrc, decodeQrc } from './codecs'
+import { mergeNativeTiming, sanitizeTiming, hasWordTiming, normalizeIdentity, normalizeArtists } from './accuracy'
+import { lyricRequest, within } from './network'
+import { enrichWordLyrics } from './wordSources'
 
 /** 歌词数据 */
 export interface LyricData {
@@ -18,6 +22,9 @@ export interface LyricData {
   rawLrc: string
   /** 原始翻译 LRC 文本 */
   rawTlrc: string
+  timingSource?: 'native' | 'community' | 'matched'
+  fetchedAt?: number
+  platformSongId?: string
 }
 
 const EMPTY_LYRIC: LyricData = { lines: [], rawLrc: '', rawTlrc: '' }
@@ -182,13 +189,13 @@ function parseJsonOrJsonp(input: string): any {
 }
 
 async function requestJson<T = any>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init)
+  const resp = await lyricRequest(url, init)
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${url}`)
   return (await resp.json()) as T
 }
 
 async function requestText(url: string, init?: RequestInit): Promise<string> {
-  const resp = await fetch(url, init)
+  const resp = await lyricRequest(url, init)
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${url}`)
   return resp.text()
 }
@@ -300,6 +307,7 @@ async function fetchTxMusicuLyric(songmid: string): Promise<LyricData> {
 interface KwLyricLine {
   timeMs: number
   text: string
+  words?: LyricLine['words']
 }
 
 const KW_HTML_ENTITY_MAP: Record<string, string> = {
@@ -402,7 +410,12 @@ function buildKwLyricData(lines: KwLyricLine[], tags: string[] = []): LyricData 
   const rawLrc = buildRawLrcFromKwLines(lrc, tags)
   if (!rawLrc) return EMPTY_LYRIC
   const rawTlrc = lrcT.length ? buildRawLrcFromKwLines(lrcT, tags) : ''
-  return buildLyricData(rawLrc, rawTlrc)
+  const basic = buildLyricData(rawLrc, rawTlrc)
+  const timed = lrc.filter(line => line.words?.length).map(line => ({
+    time: line.timeMs, text: line.text, words: line.words,
+    endTime: Math.max(...line.words!.map(word => word.endTime)),
+  }))
+  return { ...basic, lines: mergeNativeTiming(timed, basic.lines) }
 }
 
 function decodeBase64Bytes(base64Text: string): Uint8Array {
@@ -562,6 +575,7 @@ function decodeKwNewlyricRaw(raw: Uint8Array, isGetLyricx: boolean): string | un
 function parseKwNewlyricText(raw: string): LyricData {
   const tags: string[] = []
   const lines: KwLyricLine[] = []
+  const calibration = /\[offset:\s*[+-]?[1-9]\d*\s*\]/i.test(raw) ? '' : raw.match(/\[kuwo:([0-7]+)\]/i)?.[1] || ''
 
   for (const line of String(raw || '').split(/\r\n|\r|\n/)) {
     const trimmed = line.trim()
@@ -577,8 +591,9 @@ function parseKwNewlyricText(raw: string): LyricData {
     const timeMs = parseLrcTimestampToMs(matched[1])
     if (timeMs === undefined) continue
 
-    const text = normalizeKwLyricText(matched[2]).replace(KW_WORD_TIME_TAG_RE, '')
-    lines.push({ timeMs, text })
+    const body = normalizeKwLyricText(matched[2])
+    const text = body.replace(KW_WORD_TIME_TAG_RE, '')
+    lines.push({ timeMs, text, words: parseKwWords(body, timeMs, calibration) })
   }
 
   return buildKwLyricData(lines, tags)
@@ -609,7 +624,7 @@ async function fetchKwLyricFromSongInfo(songmid: string): Promise<LyricData> {
 
 async function fetchKwLyricFromNewlyric(songmid: string): Promise<LyricData> {
   const query = buildKwNewlyricQuery(songmid, true)
-  const resp = await fetch(`${KW_NEW_LYRIC_URL}?${encodeURIComponent(query)}`, {
+  const resp = await lyricRequest(`${KW_NEW_LYRIC_URL}?${encodeURIComponent(query)}`, {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   })
   if (!resp.ok) return EMPTY_LYRIC
@@ -657,7 +672,7 @@ async function fetchKwLyric(songmid: string): Promise<LyricData> {
  * 通过已有 linuxapi 加密通道请求歌词接口。
  * @param songmid - 歌曲 ID
  */
-async function fetchWyLyric(songmid: string): Promise<LyricData> {
+async function fetchWyLyric(songmid: string, duration = 0): Promise<LyricData> {
   const params = { id: songmid, lv: -1, tv: -1, rv: -1, kv: -1 }
   try {
     const resp = await wyRequest('https://music.163.com/api/song/lyric/v1', {
@@ -665,15 +680,18 @@ async function fetchWyLyric(songmid: string): Promise<LyricData> {
     })
     if (resp.data?.code === 200) {
       const data = resp.data
-      const timed = parseTimedLyric(data?.yrc?.lyric || '')
+      const rawTimed = String(data?.yrc?.lyric || '')
+      const parsed = parseTimedLyric(rawTimed)
+      // A partially parsed document must not silently delete the corrupt rows.
+      const timed = parsed.length === [...rawTimed.matchAll(/^\[\d+,\d+\]/gm)].length ? parsed : []
+      const basic = buildLyricData(data?.lrc?.lyric || '', data?.tlyric?.lyric || '')
       if (timed.length) {
         const rawTlrc = data?.ytlrc?.lyric || data?.tlyric?.lyric || ''
         return {
-          lines: mergeLyricTranslation(timed, parseLrc(rawTlrc)),
+          lines: mergeNativeTiming(mergeLyricTranslation(timed, parseLrc(rawTlrc)), basic.lines, duration),
           rawLrc: data?.lrc?.lyric || data?.yrc?.lyric || '', rawTlrc,
         }
       }
-      const basic = buildLyricData(data?.lrc?.lyric || '', data?.tlyric?.lyric || '')
       if (basic.lines.length) return basic
     }
   } catch { /* The legacy endpoint remains available if YRC is unsupported. */ }
@@ -687,13 +705,59 @@ async function fetchWyLyric(songmid: string): Promise<LyricData> {
  * 获取 TX（QQ 音乐）歌词。
  * 优先使用 QQ 官方 c.y 接口，失败或空结果时回退 musicu 接口。
  */
-async function fetchTxLyric(songmid: string): Promise<LyricData> {
+async function resolveTxSongId(track: Track): Promise<string> {
+  if (/^\d+$/.test(track.songId || '')) return track.songId!
+  const mid = String(track.songmid || track.id.replace(/^tx_/, ''))
+  if (/^\d+$/.test(mid)) return mid
+  const response = await requestJson<any>(TX_MUSICU_LYRIC_URL, {
+    method: 'POST', headers: TX_MUSICU_LYRIC_HEADERS,
+    body: JSON.stringify({ comm: { ct: 19, cv: 1859, uin: '0' }, req: {
+      module: 'music.pf_song_detail_svr', method: 'get_song_detail_yqq',
+      param: { song_type: 0, song_mid: mid },
+    } }),
+  })
+  const info = response?.req?.data?.track_info
+  if (response?.req?.code !== 0 || String(info?.mid || '') !== mid || !/^\d+$/.test(String(info?.id || '')))
+    return ''
+  return String(info.id)
+}
+
+async function fetchTxTimedLyric(track: Track): Promise<LyricData> {
+  const songID = await resolveTxSongId(track)
+  if (!songID) return EMPTY_LYRIC
+  const response = await requestJson<any>(TX_MUSICU_LYRIC_URL, {
+    method: 'POST', headers: TX_MUSICU_LYRIC_HEADERS,
+    body: JSON.stringify({ comm: { ct: 19, cv: 1859, uin: '0' }, req: {
+      module: 'music.musichallSong.PlayLyricInfo', method: 'GetPlayLyricInfo', param: {
+        format: 'json', crypt: 1, ct: 19, cv: 1873, interval: 0, lrc_t: 0,
+        qrc: 1, qrc_t: 0, roma: 1, roma_t: 0, songID: Number(songID), trans: 1, trans_t: 0, type: -1,
+      },
+    } }),
+  })
+  const node = response?.req
+  if (response?.code !== 0 || node?.code !== 0) return { ...EMPTY_LYRIC, platformSongId: songID }
+  const raw = decodeQrc(String(node?.data?.lyric || ''))
+  const lines = parseTimedLyric(raw)
+  if (!lines.length || lines.length !== [...raw.matchAll(/^\[\d+,\d+\]/gm)].length)
+    return { ...EMPTY_LYRIC, platformSongId: songID }
+  let rawTlrc = ''
+  try { rawTlrc = decodeQrc(String(node?.data?.trans || '')) } catch { /* translation is optional */ }
+  const translations = parseTimedLyric(rawTlrc)
+  return { lines: mergeLyricTranslation(sanitizeTiming(lines, track.duration), translations.length ? translations : parseLrc(rawTlrc)),
+    rawLrc: lines.map(line => `[${formatLrcTimestamp(line.time)}]${line.text}`).join('\n'), rawTlrc, platformSongId: songID }
+}
+
+async function fetchTxLyric(track: Track): Promise<LyricData> {
+  const songmid = String(track.songmid || track.id.replace(/^tx_/, ''))
+  const timedRequest = within(fetchTxTimedLyric(track), EMPTY_LYRIC, 6500)
   let officialData = EMPTY_LYRIC
   try {
     officialData = await fetchTxOfficialLyric(songmid)
     if (officialData.lines.length) {
       console.log(`[LyricFetcher] TX lyric hit: official (${songmid})`)
-      return officialData
+      const timed = await timedRequest
+      return { ...officialData, platformSongId: timed.platformSongId,
+        lines: mergeNativeTiming(timed.lines, officialData.lines, track.duration) }
     }
   } catch (error) {
     console.warn(`[LyricFetcher] TX official lyric request failed (${songmid}): ${toErrorMessage(error)}`)
@@ -703,26 +767,28 @@ async function fetchTxLyric(songmid: string): Promise<LyricData> {
     const musicuData = await fetchTxMusicuLyric(songmid)
     if (musicuData.lines.length) {
       console.log(`[LyricFetcher] TX lyric hit: musicu (${songmid})`)
-      return musicuData
+      const timed = await timedRequest
+      return { ...musicuData, platformSongId: timed.platformSongId,
+        lines: mergeNativeTiming(timed.lines, musicuData.lines, track.duration) }
     }
   } catch (error) {
     console.warn(`[LyricFetcher] TX musicu lyric request failed (${songmid}): ${toErrorMessage(error)}`)
   }
 
   console.warn(`[LyricFetcher] TX lyric empty from official APIs (${songmid})`)
-  return EMPTY_LYRIC
+  return await timedRequest
 }
 
 /**
  * 获取 KG（酷狗）歌词（参考 CeruMusic：search + download）。
- * 优先下载 lrc，避免 krc 解析依赖。
+ * 同一音频 hash 优先下载 KRC，失败或时间不合法时回退 LRC。
  */
 async function fetchKgLyric(track: Track): Promise<LyricData> {
   const hash = track.hash || ''
   if (!hash) return EMPTY_LYRIC
 
   const keyword = encodeURIComponent(track.title || '')
-  const timeLength = Math.max(0, Math.round(track.duration || 0))
+  const timeLength = Math.max(0, Math.round(track.duration || 0)) // Track.duration is milliseconds.
   const searchResp = await requestJson<any>(
     `https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=${keyword}&hash=${hash}&timelength=${timeLength}&lrctxt=1`,
     { headers: KG_HEADERS }
@@ -733,13 +799,33 @@ async function fetchKgLyric(track: Track): Promise<LyricData> {
     : []
   if (!candidates.length) return EMPTY_LYRIC
 
-  const selected =
-    candidates.find(
-      (item: any) =>
-        !(Number(item?.krctype) === 1 && Number(item?.contenttype) !== 1)
-    ) || candidates[0]
+  const compatible = candidates.filter((item: any) => {
+    if (item.hash && String(item.hash).toLowerCase() !== hash.toLowerCase()) return false
+    if (Number(item.adjust || 0) !== 0) return false
+    // Search can return fan uploads/other singers even for an exact hash.
+    // Candidate duration is milliseconds, as verified against real responses.
+    return !!item.song && !!item.singer && track.duration > 0 && Number(item.duration) > 0
+      && normalizeIdentity(item.song) === normalizeIdentity(track.title)
+      && normalizeArtists(item.singer) === normalizeArtists(track.artist)
+      && Math.abs(Number(item.duration) - track.duration) <= 1000
+  })
+  const selected = compatible.find((item: any) => Number(item.krctype) === 1 && Number(item.contenttype) !== 1) || compatible[0] || candidates[0]
 
   if (!selected?.id || !selected?.accesskey) return EMPTY_LYRIC
+
+  if (compatible.includes(selected) && Number(selected.krctype) === 1 && Number(selected.contenttype) !== 1) {
+    try {
+      const response = await requestJson<any>(
+        `https://lyrics.kugou.com/download?ver=1&client=pc&id=${selected.id}&accesskey=${selected.accesskey}&fmt=krc&charset=utf8`,
+        { headers: KG_HEADERS }
+      )
+      if (Number(response?.status) === 200 && response?.content) {
+        const lines = sanitizeTiming(parseKrc(decodeKrc(String(response.content))), track.duration)
+        if (lines.length && hasWordTiming(lines)) return { lines,
+          rawLrc: lines.map(line => `[${formatLrcTimestamp(line.time)}]${line.text}`).join('\n'), rawTlrc: '' }
+      }
+    } catch { /* Keep the proven LRC path if decoding or validation fails. */ }
+  }
 
   const downloadResp = await requestJson<any>(
     `https://lyrics.kugou.com/download?ver=1&client=pc&id=${selected.id}&accesskey=${selected.accesskey}&fmt=lrc&charset=utf8`,
@@ -807,7 +893,7 @@ async function fetchMgLyric(track: Track): Promise<LyricData> {
  * @param track - 当前播放歌曲
  * @returns 歌词数据；获取失败返回空歌词
  */
-export async function fetchLyric(track: Track): Promise<LyricData> {
+export async function fetchNativeLyric(track: Track): Promise<LyricData> {
   const source = track.source || 'kw'
   const rawSongmid = track.songmid || track.id
   const songmid = source === 'kw' ? normalizeKwSongmid(rawSongmid) : rawSongmid
@@ -819,9 +905,9 @@ export async function fetchLyric(track: Track): Promise<LyricData> {
       case 'kw':
         return await fetchKwLyric(songmid)
       case 'wy':
-        return await fetchWyLyric(songmid)
+        return await fetchWyLyric(songmid, track.duration)
       case 'tx':
-        return await fetchTxLyric(songmid)
+        return await fetchTxLyric(track)
       case 'kg':
         return await fetchKgLyric(track)
       case 'mg':
@@ -836,4 +922,15 @@ export async function fetchLyric(track: Track): Promise<LyricData> {
     )
     return EMPTY_LYRIC
   }
+}
+
+/** Display native lyrics first; optional enrichment cannot block playback or erase lyrics. */
+export async function fetchLyric(track: Track, onUpdate?: (data: LyricData) => void): Promise<LyricData> {
+  const native = await within(fetchNativeLyric(track), EMPTY_LYRIC, 12000)
+  const lines = sanitizeTiming(native.lines, track.duration)
+  const basic: LyricData = { ...native, lines, fetchedAt: Date.now(),
+    timingSource: hasWordTiming(lines) ? 'native' : undefined }
+  onUpdate?.(basic)
+  if (hasWordTiming(lines)) return basic
+  return await within(enrichWordLyrics(track, basic, fetchNativeLyric), basic, 8000)
 }

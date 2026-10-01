@@ -335,6 +335,7 @@ function mapTxTrack(item: any): Track | null {
     coverUrl: cover,
     source: 'tx',
     songmid,
+    songId: item?.id || item?.songid ? String(item.id || item.songid) : undefined,
     picUrl: cover,
   }
 

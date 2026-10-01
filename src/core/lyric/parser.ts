@@ -15,6 +15,9 @@ export interface LyricLine {
   /** 真实逐词时间，均为歌曲绝对时间（毫秒） */
   words?: LyricWord[]
   endTime?: number
+  romanLyric?: string
+  isBG?: boolean
+  isDuet?: boolean
 }
 
 export interface LyricWord {
@@ -25,6 +28,7 @@ export interface LyricWord {
 
 /** 网易云 YRC / 已解码的 QQ QRC。保留真实时间，不为普通 LRC 猜测字时间。 */
 export function parseTimedLyric(raw: string): LyricLine[] {
+  if (/\[offset:\s*[+-]?[1-9]\d*\s*\]/i.test(raw)) return []
   const result: LyricLine[] = []
   const content = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -46,11 +50,44 @@ export function parseTimedLyric(raw: string): LyricLine[] {
         words.push({ text: word[1], startTime: Number(word[2]), endTime: Number(word[2]) + Number(word[3]) })
       }
     }
-    if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && w.endTime >= w.startTime && w.startTime >= time && w.endTime <= endTime + 100 && (!i || w.startTime >= words[i - 1].startTime))) {
+    if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && w.endTime > w.startTime && w.startTime >= time && w.endTime <= endTime && (!i || w.startTime + 1 >= words[i - 1].endTime))) {
       result.push({ time, endTime: Math.max(endTime, ...words.map(w => w.endTime)), text: words.map(w => w.text).join(''), words })
     }
   }
   return result.sort((a, b) => a.time - b.time)
+}
+
+/** Parse decrypted KRC; preserve malformed rows as ordinary line lyrics. */
+export function parseKrc(raw: string): LyricLine[] {
+  const hasOffset = /\[offset:\s*[+-]?[1-9]\d*\s*\]/i.test(raw)
+  return [...raw.matchAll(/^\[(\d+),(\d+)\](.*)$/gm)].map(match => {
+    const time = Number(match[1]), endTime = time + Number(match[2])
+    const body = match[3].replace(/\r$/, '')
+    const tokens = [...body.matchAll(/<(-?\d+),(-?\d+),-?\d+>/g)]
+    const words = tokens.map((token, i) => ({
+      text: body.slice(token.index! + token[0].length, tokens[i + 1]?.index ?? body.length),
+      startTime: time + Number(token[1]), endTime: time + Number(token[1]) + Number(token[2]),
+    }))
+    const text = body.replace(/<-?\d+,-?\d+,-?\d+>/g, '')
+    return { time, endTime, text, words: !hasOffset && tokens[0]?.index === 0 ? words : undefined }
+  })
+}
+
+/** Kuwo's encoded offsets require the octal [kuwo:] calibration tag.
+ * Formula documented by LX Music's lrcTools; never assume untagged values are ms.
+ */
+export function parseKwWords(body: string, time: number, calibration: string): LyricWord[] | undefined {
+  const value = /^[0-7]+$/.test(calibration) ? Number.parseInt(calibration, 8) : 0
+  const a = Math.trunc(value / 10), b = value % 10
+  if (a <= 0 || b <= 0) return undefined
+  const tokens = [...body.matchAll(/<(-?\d+),(-?\d+)(?:,-?\d+)?>/g)]
+  if (!tokens.length || tokens[0].index !== 0) return undefined
+  return tokens.map((token, i) => {
+    const x = Number(token[1]), y = Number(token[2])
+    const startTime = time + Math.trunc(Math.abs((x + y) / (a * 2)))
+    return { text: body.slice(token.index! + token[0].length, tokens[i + 1]?.index ?? body.length),
+      startTime, endTime: startTime + Math.trunc(Math.abs((x - y) / (b * 2))) }
+  })
 }
 
 /** 匹配 LRC 时间标签，如 [01:23.456] */

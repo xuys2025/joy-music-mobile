@@ -363,7 +363,9 @@ export default function NowPlaying({ onClose }: NowPlayingProps) {
     setLyricData({ lines: [], rawLrc: '', rawTlrc: '' });
     setLyricLoading(true);
 
-    getLyric(renderTrack)
+    getLyric(renderTrack, data => {
+      if (active) { setLyricData(data); setLyricLoading(false); }
+    })
       .then(data => {
         if (active) setLyricData(data);
       })

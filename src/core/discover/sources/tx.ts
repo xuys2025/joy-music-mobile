@@ -81,6 +81,7 @@ function mapTrack(item: any): Track {
     coverUrl: normalizeImageUrl(picByAlbum || picBySinger, 500),
     source: 'tx',
     songmid,
+    songId: item.id || item.songid ? String(item.id || item.songid) : undefined,
     picUrl: normalizeImageUrl(picByAlbum || picBySinger, 500),
     // @ts-expect-error keep runtime metadata compatible with URL resolver
     _types: qualitys,

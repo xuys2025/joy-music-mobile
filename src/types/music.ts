@@ -13,6 +13,8 @@ export interface Track {
   // Joy 音源适配字段
   source?: string
   songmid?: string
+  /** QQ numeric song ID, distinct from its alphanumeric MID. */
+  songId?: string
   copyrightId?: string
   hash?: string
   picUrl?: string

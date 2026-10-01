@@ -1,6 +1,6 @@
 {
   "name": "joy-music-mobile",
-  "version": "1.2.12",
+  "version": "1.2.13",
   "description": "A React Native music player for iOS using Expo",
   "private": true,
   "scripts": {
@@ -17,15 +17,19 @@
     "postinstall": "npm run lyrics:build",
     "test:lyrics": "jest __tests__/core/lyric --runInBand",
     "test:regression": "jest __tests__/core --runInBand",
-    "test:lyrics:web": "node scripts/test-lyrics-web.mjs"
+    "test:lyrics:web": "node scripts/test-lyrics-web.mjs",
+    "test:lyrics:codecs": "node scripts/test-lyrics-codecs.mjs"
   },
   "dependencies": {
     "@applemusic-like-lyrics/core": "0.6.0",
+    "@applemusic-like-lyrics/lyric": "1.1.0",
+    "@applemusic-like-lyrics/ttml": "1.0.1",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.1.2",
     "@react-native-community/slider": "5.0.1",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/native": "^7.1.33",
+    "@xmldom/xmldom": "0.9.12",
     "crypto-js": "^4.2.0",
     "expo": "^54.0.0",
     "expo-audio": "^1.1.1",
@@ -37,6 +41,7 @@
     "expo-splash-screen": "~31.0.13",
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
+    "fast-text-encoding": "1.0.6",
     "iconv-lite": "^0.7.2",
     "pako": "^2.1.0",
     "react": "19.1.0",

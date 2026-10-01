@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { LyricLine } from '../../core/lyric/parser'
 import type { LyricLine as RenderLine } from '@applemusic-like-lyrics/core'
+import { validWordLine } from '../../core/lyric/accuracy'
 
 export interface PlaybackState {
   position: number
@@ -15,15 +16,15 @@ export function toRenderLines(lines: LyricLine[], duration = 0): RenderLine[] {
   return lines.filter(line => Number.isFinite(line.time) && line.time >= 0 && line.text.trim())
     .map((line, index, valid) => {
       const next = valid[index + 1]?.time
-      const end = Math.max(line.time, line.endTime ?? next ?? (duration > line.time ? duration : line.time + 5000))
-      const words = line.words?.filter(word => Number.isFinite(word.startTime) && Number.isFinite(word.endTime)
-        && word.startTime >= line.time && word.endTime >= word.startTime && word.endTime <= end + 100)
+      const timed = validWordLine(line, duration)
+      const end = Math.max(line.time, (timed ? line.endTime : undefined) ?? next ?? (duration > line.time ? duration : line.time + 5000))
+      const words = timed ? line.words : undefined
       return {
         startTime: line.time, endTime: end,
         words: words?.length === line.words?.length && words?.length
           ? words.map(word => ({ word: word.text, startTime: word.startTime, endTime: word.endTime }))
           : [{ word: line.text, startTime: line.time, endTime: end }],
-        translatedLyric: line.translation || '', romanLyric: '', isBG: false, isDuet: false,
+        translatedLyric: line.translation || '', romanLyric: line.romanLyric || '', isBG: !!line.isBG, isDuet: !!line.isDuet,
       }
     })
 }

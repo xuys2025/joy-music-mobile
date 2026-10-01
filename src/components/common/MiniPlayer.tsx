@@ -73,7 +73,9 @@ export default function MiniPlayer({ onOpenPlayer }: MiniPlayerProps) {
     setLyricLoading(true)
     setLyricLines([])
 
-    void getLyric(currentTrack)
+    void getLyric(currentTrack, data => {
+      if (active) { setLyricLines(data.lines || []); setLyricLoading(false) }
+    })
       .then((data) => {
         if (!active) return
         setLyricLines(data.lines || [])

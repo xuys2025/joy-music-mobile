@@ -23,7 +23,14 @@ for (const input of Object.keys(result.metafile.inputs)) {
   const texts = await Promise.all(filenames.map(name => readFile(path.join(root, dir, name), 'utf8')))
   packages.set(dir, `${info.name} ${info.version} (${info.license})\n${texts.join('\n')}`)
 }
-const notices = `AMLL integration: AGPL-3.0-only. Original application: MIT.\nCorresponding source: https://github.com/xuys2025/joy-music-mobile/tree/feature/applemusic-lyrics\n${await readFile(path.join(root, 'licenses/Original-MIT.txt'), 'utf8')}\n${[...packages.values()].join('\n\n')}`
+// Native lyric codecs are not imported by the WebView, but their notices must ship too.
+for (const dir of ['node_modules/@applemusic-like-lyrics/lyric', 'node_modules/@applemusic-like-lyrics/ttml',
+  'node_modules/@xmldom/xmldom', 'node_modules/fast-text-encoding', 'node_modules/@applemusic-like-lyrics/lyric/node_modules/pako']) {
+  const info = JSON.parse(await readFile(path.join(root, dir, 'package.json'), 'utf8'))
+  const names = (await readdir(path.join(root, dir))).filter(name => /^(licen[sc]e|copying)(\.|$)/i.test(name))
+  packages.set(dir, `${info.name} ${info.version} (${info.license})\n${(await Promise.all(names.map(name => readFile(path.join(root, dir, name), 'utf8')))).join('\n')}`)
+}
+const notices = `AMLL integration: AGPL-3.0-only. Original application: MIT.\nCorresponding source: https://github.com/xuys2025/joy-music-mobile/tree/feature/applemusic-lyrics\nCommunity lyric source: https://github.com/amll-dev/amll-ttml-db (contributor-authored content CC0; external content follows its original license).\nKRC and Kuwo format reference: https://github.com/lyswhut/lx-music-desktop (Apache-2.0).\n${await readFile(path.join(root, 'licenses/Original-MIT.txt'), 'utf8')}\n${[...packages.values()].join('\n\n')}`
 const html = `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'"><style>${css}</style></head><body><main id="lyrics" aria-label="同步歌词"></main><script>${js}</script><script type="text/plain" id="open-source-licenses">${notices.replace(/<\/script/gi, '<\\/script')}</script></body></html>`
 const output = path.join(root, 'src/components/lyrics/generated')
 await mkdir(output, { recursive: true })
