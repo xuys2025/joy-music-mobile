@@ -72,7 +72,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let url = navigationAction.request.url?.absoluteString ?? ""
         print("WEBKIT NAVIGATION: \(url)")
-        // Mirrors v1.2.11's policy until the diagnostic run identifies failures.
+        // Matches the app: allow the local inline document, reject external navigation.
         decisionHandler(url == "about:blank" ? .allow : .cancel)
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
@@ -148,6 +148,8 @@ struct Main {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     var harness: LyricHarness!
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        print("WEBKIT IOS STARTING")
+        fflush(stdout)
         let path = Bundle.main.url(forResource: "lyrics", withExtension: "html")!
         harness = LyricHarness(output: URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents/lyrics-webkit.png"))
         let html = try! String(contentsOf: path, encoding: .utf8)
