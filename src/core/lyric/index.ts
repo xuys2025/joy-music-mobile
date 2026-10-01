@@ -43,12 +43,12 @@ function buildLyricTextForGarbledCheck(cached: LyricData): string {
  * @param track - 当前播放歌曲
  */
 export function lyricCacheKey(track: Track): string {
-  return JSON.stringify(['word_v2', track.source || 'kw', track.songmid || track.id, track.songId || '',
+  return JSON.stringify(['word_v3', track.source || 'kw', track.songmid || track.id, track.songId || '',
     track.hash || '', track.duration, normalizeIdentity(track.title), normalizeIdentity(track.artist), normalizeIdentity(track.album || '')])
 }
 
 function isFresh(data: LyricData): boolean {
-  const ttl = hasWordTiming(data.lines) ? 7 * 86400000 : 6 * 3600000
+  const ttl = hasWordTiming(data.lines) ? 7 * 86400000 : 10 * 60000
   return !!data.fetchedAt && Date.now() - data.fetchedAt < ttl
 }
 

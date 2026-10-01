@@ -58,6 +58,35 @@ test('retains 1 ms integer quantization without rewriting source timestamps', ()
   expect(validWordLine(line)).toBe(true)
   expect(sanitizeTiming([line])[0].words?.[0].endTime).toBe(1501)
 })
+test.each([
+  '[1000,1000]你(1000,500) (1500,0)好(1500,500)',
+  '[1000,1000](1000,500,0)你(1500,0,0) (1500,500,0)好',
+])('a zero-duration QRC/YRC space preserves every source atom and timestamp: %s', raw => {
+  const rows = parseTimedLyric(raw)
+  expect(rows).toHaveLength(1)
+  expect(rows[0].text).toBe('你 好')
+  expect(validWordLine(rows[0])).toBe(true)
+  expect(sanitizeTiming(rows)).toEqual(rows)
+  expect(toRenderLines(rows)[0].words).toEqual([
+    { word: '你', startTime: 1000, endTime: 1500 },
+    { word: ' ', startTime: 1500, endTime: 1500 },
+    { word: '好', startTime: 1500, endTime: 2000 },
+  ])
+})
+test('zero-duration sung characters remain invalid; spaces do not bypass order or bounds', () => {
+  for (const raw of [
+    '[1000,1000]你(1000,500)啊(1500,0)好(1500,500)',
+    '[1000,1000]你(1000,500) (1490,0)好(1500,500)',
+    '[1000,1000]你(1000,500) (2100,0)好(1500,500)',
+  ]) expect(parseTimedLyric(raw)).toEqual([])
+  const single = parseTimedLyric('[1000,1000] (1000,0)句子(1000,1000) ')[0]
+  expect(hasWordTiming([single])).toBe(false)
+})
+test('KRC layout spaces also keep their zero duration without weakening spoken-word checks', () => {
+  const rows = sanitizeTiming(parseKrc('[1000,1000]<0,500,0>你<500,0,0> <500,500,0>好'))
+  expect(rows[0].words?.map(word => word.endTime - word.startTime)).toEqual([500, 0, 500])
+  expect(validWordLine({ ...rows[0], words: rows[0].words!.map((word, i) => i === 1 ? { ...word, text: '啊' } : word) })).toBe(false)
+})
 test('native partial timing preserves missing and invalid LRC rows', () => {
   const rows = mergeNativeTiming([timed[0], { ...timed[1], words: [] }], baseline, 15000)
   expect(rows).toHaveLength(4)

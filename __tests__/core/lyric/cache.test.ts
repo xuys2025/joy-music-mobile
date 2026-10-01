@@ -15,6 +15,9 @@ test('same catalogue ID with another hash/duration/version never shares a valida
   for (const patch of [{ hash: 'another' }, { duration: 11000 }, { title: 'Fixture (Live)' }, { album: 'Other' }, { songId: '456' }])
     expect(lyricCacheKey({ ...track, ...patch })).not.toBe(lyricCacheKey(track))
 })
+test('the parser fix cannot reuse a fresh word_v2 fallback from an older install', () => {
+  expect(JSON.parse(lyricCacheKey(track))[0]).toBe('word_v3')
+})
 test('concurrent views share one request and both receive the immediate LRC update', async () => {
   let finish!: (data: typeof basic) => void
   fetcher.mockImplementation((_, update) => { update(basic); return new Promise(resolve => { finish = resolve }) })
@@ -40,4 +43,11 @@ test('expired fallback cache retries and remains available during an outage', as
   expect(await getLyric({ ...track, id: 'cache-3', songmid: 'cache-3' }, update)).toEqual(expired)
   expect(fetcher).toHaveBeenCalledTimes(1)
   expect(update).toHaveBeenCalledWith(expired)
+})
+test('a fallback retries after 10 minutes instead of masking a recovered endpoint for 6 hours', async () => {
+  const expired = { ...basic, fetchedAt: Date.now() - 11 * 60000 }
+  cache.mockResolvedValue(expired)
+  fetcher.mockResolvedValue(basic)
+  expect(await getLyric({ ...track, id: 'cache-4', songmid: 'cache-4' })).toEqual(basic)
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })

@@ -1,0 +1,71 @@
+{
+  "song": {
+    "title": "稻香",
+    "artist": "周杰伦",
+    "album": "魔杰座",
+    "durationMs": 223000
+  },
+  "capturedAt": "2026-10-01",
+  "appVersion": "1.2.14",
+  "verification": "Exact application fetch/parse/validate/bridge functions replayed with captured public native responses; no device/audio test",
+  "before": {
+    "qqRawTimedRows": 48,
+    "qqParsedTimedRows": 40,
+    "qqDeliveredTimedRows": 0,
+    "reason": "Eight QRC rows contain zero-duration layout spaces; all-document completeness check discards remaining word rows",
+    "qqNativeDeliveredRows": 48
+  },
+  "after": [
+    {
+      "platform": "QQ",
+      "platformId": "449205",
+      "songmid": "003aAYrm3GE0Ac",
+      "rows": 48,
+      "timedRows": 48,
+      "multiWordRows": 48,
+      "spokenAtoms": 467,
+      "zeroDurationSpaces": 9,
+      "timingSource": "native",
+      "renderedTimedRows": 48,
+      "retainedSourceTimes": true
+    },
+    {
+      "platform": "酷我",
+      "platformId": "440613",
+      "songmid": "440613",
+      "rows": 48,
+      "timedRows": 48,
+      "multiWordRows": 48,
+      "spokenAtoms": 469,
+      "zeroDurationSpaces": 9,
+      "timingSource": "native",
+      "renderedTimedRows": 48,
+      "retainedSourceTimes": true
+    }
+  ],
+  "limits": [
+    "Recorded network response latency is from the test environment, not the user device",
+    "No real-device audio synchronization or audio fingerprint verification",
+    "No coverage claim for all songs or other recordings"
+  ],
+  "lyricsOrCredentialsIncluded": false,
+  "liveNetworkCheck": {
+    "method": "Actual application fetchLyric with a Python HTTP adapter, not React Native networking",
+    "results": [
+      {
+        "source": "tx",
+        "rows": 48,
+        "wordRows": 48,
+        "timingSource": "native",
+        "elapsedMs": 12267
+      },
+      {
+        "source": "kw",
+        "rows": 48,
+        "wordRows": 48,
+        "timingSource": "native",
+        "elapsedMs": 11570
+      }
+    ]
+  }
+}

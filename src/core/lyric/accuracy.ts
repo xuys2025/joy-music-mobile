@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Track } from '../../types/music'
-import type { LyricLine } from './parser'
+import { validWordDuration, type LyricLine } from './parser'
 
 /** Keep version labels (live/remix/cover) when comparing catalogue metadata. */
 export const normalizeIdentity = (text: string) => String(text || '').normalize('NFKC')
@@ -19,7 +19,7 @@ export function validWordLine(line: LyricLine, duration = 0): boolean {
   if (line.text.includes('\uFFFD') || words.map(word => word.text).join('') !== line.text) return false
   return words.every((word, i) => typeof word.text === 'string' && word.text.length > 0
     && Number.isFinite(word.startTime) && Number.isFinite(word.endTime)
-    && word.startTime >= line.time && word.endTime > word.startTime
+    && word.startTime >= line.time && validWordDuration(word)
     // Integer quantization can overlap adjacent syllables by 1 ms (observed in
     // genuine Kuwo data). Keep the original values; larger overlaps fall back.
     && word.endTime <= line.endTime! && (!i || word.startTime + 1 >= words[i - 1].endTime))
@@ -82,7 +82,8 @@ export function verifiedTimeline(candidate: LyricLine[], baseline: LyricLine[], 
   if (matchedSize / size(a) < 0.95 || matchedSize / size(b) < 0.95) return false
   const first = matches[0], last = matches[matches.length - 1]
   if ((last.a - first.a) / (a.length - 1) < 0.8 || (last.b - first.b) / (b.length - 1) < 0.8) return false
-  return matches.some(({ b: i }) => validWordLine(b[i], duration) && b[i].words!.length > 1)
+  return matches.some(({ b: i }) => hasWordTiming([b[i]]))
 }
 
-export const hasWordTiming = (lines: LyricLine[]) => lines.some(line => validWordLine(line) && line.words!.length > 1)
+export const hasWordTiming = (lines: LyricLine[]) => lines.some(line => validWordLine(line)
+  && line.words!.filter(word => word.text.trim()).length > 1)

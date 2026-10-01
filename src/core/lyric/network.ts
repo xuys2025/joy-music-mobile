@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-export async function lyricRequest(url: string, init: RequestInit = {}, timeout = 5000): Promise<Response> {
+export async function lyricRequest(url: string, init: RequestInit = {}, timeout = 15000): Promise<Response> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout>
   const deadline = new Promise<never>((_, reject) => {

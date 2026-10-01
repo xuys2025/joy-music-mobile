@@ -69,7 +69,7 @@ assert.equal(messages.some(message => message.type === 'error'), false)
 animations.length = 0
 window.receiveLyrics({ type: 'lines', position: 1000, lines: [
   { startTime: 1000, endTime: 3500, isBG: false, isDuet: false, translatedLyric: '', romanLyric: '',
-    words: [{ word: '晨光', startTime: 1200, endTime: 1500 }, { word: ' I only wanna', startTime: 1500, endTime: 2800 }] },
+    words: [{ word: '晨光', startTime: 1200, endTime: 1500 }, { word: ' ', startTime: 1500, endTime: 1500 }, { word: 'I only wanna', startTime: 1500, endTime: 2800 }] },
   { startTime: 4000, endTime: 7000, isBG: false, isDuet: false, translatedLyric: '', romanLyric: '',
     words: [{ word: '整行回退 complete line', startTime: 4000, endTime: 4000 }] },
 ] })
@@ -86,6 +86,8 @@ assert.equal(fallbackRow.firstElementChild.querySelectorAll('span').length, 0, '
 const masks = animations.filter(animation => animation.options?.id?.startsWith('fade-word-'))
 assert.ok(masks.some(animation => animation.options.id === 'fade-word-晨光-0'), 'keeps the native Chinese atom intact')
 assert.ok(masks.some(animation => animation.options.id === 'fade-word-I only wanna-1'), 'keeps the native English phrase intact')
+assert.ok(lyricRows[0].textContent.includes('晨光 I only wanna'), 'source zero-duration layout space remains visible')
+assert.equal(masks.some(animation => /^fade-word-\s+-/.test(animation.options.id)), false, 'zero-duration whitespace never receives an animation mask')
 assert.ok(masks.every(animation => animation.options.duration === 2500), 'preserves the source line end instead of shortening it to the last word')
 assert.equal(masks.some(animation => /fade-word-(晨-|光-|only-|wanna-|整行回退)/.test(animation.options.id)), false, 'never invents subword masks')
 lyricRows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }))

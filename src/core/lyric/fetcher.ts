@@ -38,11 +38,10 @@ const TX_OFFICIAL_LYRIC_HEADERS = {
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
 }
 const TX_MUSICU_LYRIC_HEADERS = {
-  Referer: 'https://y.qq.com/portal/player.html',
-  Origin: 'https://y.qq.com',
+  Referer: 'https://y.qq.com',
   'Content-Type': 'application/json',
   'User-Agent':
-    'Mozilla/5.0 (Linux; Android 12; EBG-AN10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36',
 }
 const MG_RESOURCE_INFO_URL =
   'https://c.musicapp.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do?resourceType=2'
@@ -548,9 +547,9 @@ function buildKwNewlyricQuery(songmid: string, isGetLyricx = true): string {
   return encodeBase64Bytes(encodedBytes)
 }
 
-function decodeKwNewlyricRaw(raw: Uint8Array, isGetLyricx: boolean): string | undefined {
+function decodeKwNewlyricRaw(raw: Uint8Array, isGetLyricx: boolean, encoding = 'gb18030'): string | undefined {
   const header = decodeBytesByEncoding(raw.subarray(0, 10), 'utf-8') || ''
-  if (!header.startsWith('tp=content')) return undefined
+  if (!header.toLowerCase().startsWith('tp=content')) return undefined
 
   const separator = findBytesIndex(raw, [13, 10, 13, 10])
   if (separator < 0) return undefined
@@ -567,9 +566,9 @@ function decodeKwNewlyricRaw(raw: Uint8Array, isGetLyricx: boolean): string | un
   }
 
   const decoded =
-    decodeBytesByEncoding(lyricBytes, 'gb18030') ||
-    decodeBytesByEncoding(lyricBytes, 'gbk')
-  return decoded?.trim()
+    decodeBytesByEncoding(lyricBytes, encoding) ||
+    (encoding === 'gb18030' ? decodeBytesByEncoding(lyricBytes, 'gbk') : undefined)
+  return decoded && !isLikelyGarbledLyric(decoded) ? decoded.trim() : undefined
 }
 
 function parseKwNewlyricText(raw: string): LyricData {
@@ -635,22 +634,33 @@ async function fetchKwLyricFromNewlyric(songmid: string): Promise<LyricData> {
   return parseKwNewlyricText(decoded)
 }
 
+/** Current LX endpoint returns UTF-8, unlike the legacy newlyric GB18030 payload. */
+async function fetchKwLyricFromMlyric(songmid: string): Promise<LyricData> {
+  const query = new URLSearchParams({ f: 'web', type: 'lyric', lrcx: '1', rid: songmid, encode: 'utf8' })
+  const resp = await lyricRequest(`https://mlyric.kuwo.cn/mobi.s?${query}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  })
+  if (!resp.ok) return EMPTY_LYRIC
+  const decoded = decodeKwNewlyricRaw(new Uint8Array(await resp.arrayBuffer()), true, 'utf-8')
+  return decoded ? parseKwNewlyricText(decoded) : EMPTY_LYRIC
+}
+
 /**
  * 获取 KW（酷我）歌词。
- * 复刻 CeruMusic 行为：优先走 newlyric 官方接口，失败后回退 songinfoandlrc。
+ * 与 LX 对齐：优先 mlyric UTF-8 逐字接口，再回退旧 newlyric 和 songinfoandlrc。
  * @param songmid - 歌曲 ID
  */
-async function fetchKwLyric(songmid: string): Promise<LyricData> {
-  let newlyricData = EMPTY_LYRIC
-  try {
-    newlyricData = await fetchKwLyricFromNewlyric(songmid)
-    if (newlyricData.lines.length) {
-      console.log(`[LyricFetcher] KW lyric hit: newlyric (${songmid})`)
-      return newlyricData
-    }
-  } catch {
-    newlyricData = EMPTY_LYRIC
+async function fetchKwLyric(songmid: string, duration = 0): Promise<LyricData> {
+  let fallback = EMPTY_LYRIC
+  for (const fetcher of [fetchKwLyricFromMlyric, fetchKwLyricFromNewlyric]) {
+    try {
+      const fetched = await fetcher(songmid)
+      const data = { ...fetched, lines: sanitizeTiming(fetched.lines, duration) }
+      if (hasWordTiming(data.lines)) return data
+      if (!fallback.lines.length && data.lines.length) fallback = data
+    } catch { /* A failed word endpoint must keep the existing lyric fallback. */ }
   }
+  if (fallback.lines.length) return fallback
 
   let songInfoLyric = EMPTY_LYRIC
   try {
@@ -749,7 +759,7 @@ async function fetchTxTimedLyric(track: Track): Promise<LyricData> {
 
 async function fetchTxLyric(track: Track): Promise<LyricData> {
   const songmid = String(track.songmid || track.id.replace(/^tx_/, ''))
-  const timedRequest = within(fetchTxTimedLyric(track), EMPTY_LYRIC, 6500)
+  const timedRequest = within(fetchTxTimedLyric(track), EMPTY_LYRIC, 25000)
   let officialData = EMPTY_LYRIC
   try {
     officialData = await fetchTxOfficialLyric(songmid)
@@ -903,7 +913,7 @@ export async function fetchNativeLyric(track: Track): Promise<LyricData> {
   try {
     switch (source) {
       case 'kw':
-        return await fetchKwLyric(songmid)
+        return await fetchKwLyric(songmid, track.duration)
       case 'wy':
         return await fetchWyLyric(songmid, track.duration)
       case 'tx':
@@ -926,7 +936,7 @@ export async function fetchNativeLyric(track: Track): Promise<LyricData> {
 
 /** Display native lyrics first; optional enrichment cannot block playback or erase lyrics. */
 export async function fetchLyric(track: Track, onUpdate?: (data: LyricData) => void): Promise<LyricData> {
-  const native = await within(fetchNativeLyric(track), EMPTY_LYRIC, 12000)
+  const native = await within(fetchNativeLyric(track), EMPTY_LYRIC, 30000)
   const lines = sanitizeTiming(native.lines, track.duration)
   const basic: LyricData = { ...native, lines, fetchedAt: Date.now(),
     timingSource: hasWordTiming(lines) ? 'native' : undefined }

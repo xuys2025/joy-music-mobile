@@ -1,5 +1,29 @@
 import { lyricRequest, within } from '../../../src/core/lyric/network'
 
+test('a real-sized slow lyric response arriving after 5 seconds stays usable within the 15-second request limit', async () => {
+  jest.useFakeTimers()
+  const original = globalThis.fetch
+  globalThis.fetch = jest.fn(() => new Promise(resolve => setTimeout(() => resolve({ ok: true } as Response), 11000)))
+  try {
+    const pending = lyricRequest('https://example.com')
+    await jest.advanceTimersByTimeAsync(11000)
+    expect(await pending).toEqual({ ok: true })
+  } finally { globalThis.fetch = original; jest.useRealTimers() }
+})
+test('the longer default request limit still aborts a stalled endpoint at 15 seconds', async () => {
+  jest.useFakeTimers()
+  const original = globalThis.fetch
+  let signal: AbortSignal | undefined
+  globalThis.fetch = jest.fn((_, init) => { signal = init?.signal as AbortSignal; return new Promise(() => {}) })
+  try {
+    const pending = lyricRequest('https://example.com')
+    const checked = expect(pending).rejects.toThrow('timeout')
+    await jest.advanceTimersByTimeAsync(15000)
+    await checked
+    expect(signal?.aborted).toBe(true)
+  } finally { globalThis.fetch = original; jest.useRealTimers() }
+})
+
 test('a stuck provider aborts and rejects instead of indefinitely blocking fallback', async () => {
   jest.useFakeTimers()
   const original = globalThis.fetch

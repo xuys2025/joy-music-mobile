@@ -88,7 +88,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         let fixture = """
         window.receiveLyrics({type:'theme',dark:false,reducedMotion:false});
         window.receiveLyrics({type:'lines',position:1200,lines:[
-        {startTime:1000,endTime:3500,isBG:false,isDuet:false,translatedLyric:'Morning light',romanLyric:'',words:[{word:'晨光',startTime:1200,endTime:2300},{word:'照亮',startTime:2300,endTime:3500}]},
+        {startTime:1000,endTime:3500,isBG:false,isDuet:false,translatedLyric:'Morning light',romanLyric:'',words:[{word:'晨光',startTime:1200,endTime:2300},{word:' ',startTime:2300,endTime:2300},{word:'照亮',startTime:2300,endTime:3500}]},
         {startTime:4000,endTime:8000,isBG:false,isDuet:false,translatedLyric:'Walking slowly',romanLyric:'',words:[{word:'慢慢向前走',startTime:4000,endTime:4000}]}
         ]});
         window.receiveLyrics({type:'clock',state:{position:1200,duration:8000,playing:true,active:true}});
@@ -107,7 +107,9 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         window.receiveLyrics({type:'clock',state:{position:1500,duration:8000,playing:false,active:false}});
         var rows=Array.from(document.querySelectorAll('[class*="_lyricLineWrapper"]:not([class*="_bottomLineWrapper"])'));
         var fallback=rows.find(function(r){return r.textContent.includes('慢慢向前走')});
-        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,fallbackPlain:!!fallback && fallback.children[0].querySelectorAll('span').length===0});
+        var timed=rows.find(function(r){return r.textContent.includes('晨光')});
+        var spacePlain=!!timed && Array.from(timed.children[0].childNodes).some(function(n){return n.nodeType===3 && n.textContent===' '}) && !Array.from(timed.children[0].querySelectorAll('span')).some(function(n){return n.textContent.length>0 && !n.textContent.trim()});
+        ({text:document.getElementById('lyrics').textContent,theme:document.documentElement.dataset.theme,spacePlain:spacePlain,fallbackPlain:!!fallback && fallback.children[0].querySelectorAll('span').length===0});
         """
         web.evaluateJavaScript(script) { result, error in
             if let error = error { self.fail("DOM assertions: \(error)") }
@@ -115,6 +117,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                   text.contains("晨光"), text.contains("Morning light"), result["theme"] as? String == "light" else { self.fail("Lyrics not rendered: \(String(describing: result))") }
             guard self.seek else { self.fail("Click did not reach the native bridge") }
             guard result["fallbackPlain"] as? Bool == true else { self.fail("Untimed mixed row acquired inferred word masks") }
+            guard result["spacePlain"] as? Bool == true else { self.fail("Zero-duration source space was removed or animated") }
             guard self.errors.isEmpty else { self.fail("Page errors: \(self.errors)") }
             self.cycles += 1
             if self.cycles < 3 {

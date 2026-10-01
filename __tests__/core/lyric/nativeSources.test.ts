@@ -31,6 +31,44 @@ test('QQ requests numeric songID + qrc=1 and preserves all fallback rows', async
   const body = JSON.parse((fetch as jest.Mock).mock.calls.find(([url]) => String(url).includes('musicu'))[1].body)
   expect(body.req.param).toMatchObject({ songID: 123, qrc: 1, crypt: 1 })
 })
+test('one QRC layout space cannot make the whole native document lose its word timing', async () => {
+  const raw = '<QrcInfos><Lyric_1 LyricContent="[1000,1000]你(1000,500) (1500,0)好(1500,500)\n[4000,1000]世(4000,500)界(4500,500)"/></QrcInfos>'
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('c.y.qq.com') ? official()
+    : json({ code: 0, req: { code: 0, data: { lyric: encryptQrcHex(raw) } } }))
+  const result = await fetchNativeLyric(track)
+  expect(result.lines).toHaveLength(3)
+  expect(result.lines[0].words).toHaveLength(3)
+  expect(result.lines[0].words?.[1]).toEqual({ text: ' ', startTime: 1500, endTime: 1500 })
+  expect(result.lines[1].words).toHaveLength(2)
+})
+
+const kwPayload = (text: string, header = 'TP=content') => {
+  const bytes = new TextEncoder().encode(text).map((byte, i) => byte ^ 'yeelion'.charCodeAt(i % 7))
+  const compressed = deflate(btoa(Array.from(bytes).map(byte => String.fromCharCode(byte)).join('')))
+  const prefix = new TextEncoder().encode(header + '\r\n\r\n')
+  const raw = new Uint8Array(prefix.length + compressed.length)
+  raw.set(prefix); raw.set(compressed, prefix.length)
+  return { ok: true, arrayBuffer: async () => raw.buffer }
+}
+test('current Kuwo mlyric uses UTF-8 and accepts an uppercase TP header with real zero-duration spaces', async () => {
+  ;(fetch as jest.Mock).mockResolvedValue(kwPayload('[ti:测试]\n[kuwo:13]\n[00:01.000]<500,-500>你<500,500> <2000,-1000>好'))
+  const result = await fetchNativeLyric({ ...track, source: 'kw', songmid: 'kw_123' })
+  expect((fetch as jest.Mock).mock.calls[0][0]).toContain('https://mlyric.kuwo.cn/mobi.s?')
+  expect((fetch as jest.Mock).mock.calls[0][0]).toContain('lrcx=1')
+  expect((fetch as jest.Mock).mock.calls[0][0]).toContain('rid=123')
+  expect((fetch as jest.Mock).mock.calls).toHaveLength(1)
+  expect(result.lines[0].text).toBe('你 好')
+  expect(result.lines[0].words?.map(word => [word.startTime, word.endTime])).toEqual([[1000, 1500], [1500, 1500], [1500, 3000]])
+})
+test('failed Kuwo word endpoints preserve the existing songinfo LRC fallback', async () => {
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('songinfoandlrc')
+    ? json({ data: { lrclist: [{ time: '1', lineLyric: '你好' }, { time: '4', lineLyric: '世界' }] } })
+    : { ok: false })
+  const result = await fetchNativeLyric({ ...track, source: 'kw', songmid: '123' })
+  expect(result.lines.map(line => line.text)).toEqual(['你好', '世界'])
+  expect(result.lines.every(line => !line.words)).toBe(true)
+  expect((fetch as jest.Mock).mock.calls).toHaveLength(3)
+})
 test('QQ corrupt ciphertext preserves the working official LRC path', async () => {
   ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('c.y.qq.com') ? official()
     : json({ code: 0, req: { code: 0, data: { lyric: 'f'.repeat(64) } } }))

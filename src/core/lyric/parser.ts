@@ -26,6 +26,10 @@ export interface LyricWord {
   endTime: number
 }
 
+/** A provider may give a layout space a zero duration; it is never sung or animated. */
+export const validWordDuration = (word: LyricWord): boolean => word.endTime > word.startTime
+  || (word.endTime === word.startTime && word.text.length > 0 && !word.text.trim())
+
 /** 网易云 YRC / 已解码的 QQ QRC。保留真实时间，不为普通 LRC 猜测字时间。 */
 export function parseTimedLyric(raw: string): LyricLine[] {
   if (/\[offset:\s*[+-]?[1-9]\d*\s*\]/i.test(raw)) return []
@@ -50,7 +54,7 @@ export function parseTimedLyric(raw: string): LyricLine[] {
         words.push({ text: word[1], startTime: Number(word[2]), endTime: Number(word[2]) + Number(word[3]) })
       }
     }
-    if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && w.endTime > w.startTime && w.startTime >= time && w.endTime <= endTime && (!i || w.startTime + 1 >= words[i - 1].endTime))) {
+    if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && validWordDuration(w) && w.startTime >= time && w.endTime <= endTime && (!i || w.startTime + 1 >= words[i - 1].endTime))) {
       result.push({ time, endTime: Math.max(endTime, ...words.map(w => w.endTime)), text: words.map(w => w.text).join(''), words })
     }
   }
