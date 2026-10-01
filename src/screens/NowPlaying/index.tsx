@@ -360,6 +360,7 @@ export default function NowPlaying({ onClose }: NowPlayingProps) {
     }
 
     let active = true;
+    setLyricData({ lines: [], rawLrc: '', rawTlrc: '' });
     setLyricLoading(true);
 
     getLyric(renderTrack)
@@ -830,17 +831,15 @@ export default function NowPlaying({ onClose }: NowPlayingProps) {
               style={[
                 styles.lyricsPanel,
                 {
-                  backgroundColor: isDark ? 'rgba(28,28,30,0.25)' : 'rgba(255,255,255,0.3)',
-                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)',
+                  backgroundColor: 'transparent',
+                  borderWidth: 0,
                 },
               ]}
             >
-              <BlurView
-                intensity={isDark ? 30 : 50}
-                tint={isDark ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFill}
-              />
               <LyricsView
+                key={`${renderTrack?.source || ''}_${renderTrack?.songmid || renderTrack?.id || ''}`}
+                duration={duration}
+                isPlaying={isPlaying}
                 lyrics={lyricData.lines}
                 position={position}
                 loading={lyricLoading}

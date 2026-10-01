@@ -1,0 +1,15 @@
+html, body, #lyrics { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+#lyrics { padding: 0 24px; box-sizing: border-box; mask-image: linear-gradient(transparent, black 9%, black 87%, transparent); }
+.amll-lyric-player {
+  --amll-lp-font-size: clamp(26px, 7.5vw, 34px);
+  --amll-lp-color: #fff;
+  --amll-lp-line-width-aspect: 1;
+  --amll-lp-line-padding-x: 0;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  mix-blend-mode: normal;
+}
+html[data-theme=light] .amll-lyric-player { --amll-lp-color: #171719; }
+/* AMLL 0.6 uses a 0.5em translation size. Keep its built-in layout. */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }

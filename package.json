@@ -1,6 +1,6 @@
 {
   "name": "joy-music-mobile",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "description": "A React Native music player for iOS using Expo",
   "private": true,
   "scripts": {
@@ -12,9 +12,15 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "test": "jest",
-    "release:version": "node scripts/release-tag.mjs"
+    "release:version": "node scripts/release-tag.mjs",
+    "lyrics:build": "node scripts/build-lyrics.mjs",
+    "postinstall": "npm run lyrics:build",
+    "test:lyrics": "jest __tests__/core/lyric --runInBand",
+    "test:regression": "jest __tests__/core --runInBand",
+    "test:lyrics:web": "node scripts/test-lyrics-web.mjs"
   },
   "dependencies": {
+    "@applemusic-like-lyrics/core": "0.6.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.1.2",
     "@react-native-community/slider": "5.0.1",
@@ -40,6 +46,7 @@
     "react-native-reanimated": "4.1.1",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "~4.16.0",
+    "react-native-webview": "13.15.0",
     "react-native-worklets": "0.5.1",
     "react-redux": "^9.0.0",
     "redux": "^5.0.0"
@@ -53,13 +60,16 @@
     "@types/react": "~19.1.10",
     "@types/react-test-renderer": "^19.1.0",
     "babel-preset-expo": "^54.0.10",
+    "esbuild": "^0.28.2",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
+    "jsdom": "^26.1.0",
     "prettier": "2.8.8",
     "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=18",
     "npm": ">=8.5.2"
-  }
+  },
+  "license": "AGPL-3.0-only"
 }

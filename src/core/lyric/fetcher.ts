@@ -5,7 +5,7 @@
  */
 
 import { Track } from '../../types/music'
-import { LyricLine, parseLrc, mergeLyricTranslation } from './parser'
+import { LyricLine, parseLrc, parseTimedLyric, mergeLyricTranslation } from './parser'
 import { wyRequest } from '../discover/wyCrypto'
 import { inflate } from 'pako'
 import { decodeByIconvCompat } from './iconvCompat'
@@ -658,20 +658,29 @@ async function fetchKwLyric(songmid: string): Promise<LyricData> {
  * @param songmid - 歌曲 ID
  */
 async function fetchWyLyric(songmid: string): Promise<LyricData> {
-  const resp = await wyRequest('https://music.163.com/api/song/lyric', {
-    id: songmid,
-    lv: -1,
-    tv: -1,
-    rv: -1,
-    kv: -1,
-  })
-
-  const data = resp.data
-  if (data?.code !== 200) return EMPTY_LYRIC
-
-  const rawLrc: string = data?.lrc?.lyric || ''
-  const rawTlrc: string = data?.tlyric?.lyric || ''
-  return buildLyricData(rawLrc, rawTlrc)
+  const params = { id: songmid, lv: -1, tv: -1, rv: -1, kv: -1 }
+  try {
+    const resp = await wyRequest('https://music.163.com/api/song/lyric/v1', {
+      ...params, yv: -1, ytv: -1, yrv: -1,
+    })
+    if (resp.data?.code === 200) {
+      const data = resp.data
+      const timed = parseTimedLyric(data?.yrc?.lyric || '')
+      if (timed.length) {
+        const rawTlrc = data?.ytlrc?.lyric || data?.tlyric?.lyric || ''
+        return {
+          lines: mergeLyricTranslation(timed, parseLrc(rawTlrc)),
+          rawLrc: data?.lrc?.lyric || data?.yrc?.lyric || '', rawTlrc,
+        }
+      }
+      const basic = buildLyricData(data?.lrc?.lyric || '', data?.tlyric?.lyric || '')
+      if (basic.lines.length) return basic
+    }
+  } catch { /* The legacy endpoint remains available if YRC is unsupported. */ }
+  const resp = await wyRequest('https://music.163.com/api/song/lyric', params)
+  return resp.data?.code === 200
+    ? buildLyricData(resp.data?.lrc?.lyric || '', resp.data?.tlyric?.lyric || '')
+    : EMPTY_LYRIC
 }
 
 /**

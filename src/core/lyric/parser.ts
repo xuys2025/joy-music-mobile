@@ -12,6 +12,45 @@ export interface LyricLine {
   text: string
   /** 翻译文本 */
   translation?: string
+  /** 真实逐词时间，均为歌曲绝对时间（毫秒） */
+  words?: LyricWord[]
+  endTime?: number
+}
+
+export interface LyricWord {
+  text: string
+  startTime: number
+  endTime: number
+}
+
+/** 网易云 YRC / 已解码的 QQ QRC。保留真实时间，不为普通 LRC 猜测字时间。 */
+export function parseTimedLyric(raw: string): LyricLine[] {
+  const result: LyricLine[] = []
+  const content = raw.replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  for (const match of content.matchAll(/\[(\d+),(\d+)\]([^\r\n]*)/g)) {
+    const time = Number(match[1])
+    const endTime = time + Number(match[2])
+    const words: LyricWord[] = []
+    const text = match[3]
+    if (/\(-?\d+,-?\d+,-?\d+\)/.test(text)) {
+      const tokens = [...text.matchAll(/\((-?\d+),(-?\d+),-?\d+\)/g)]
+      if (tokens[0]?.index !== 0) continue
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i]
+        const word = text.slice(token.index! + token[0].length, tokens[i + 1]?.index ?? text.length)
+        if (word) words.push({ text: word, startTime: Number(token[1]), endTime: Number(token[1]) + Number(token[2]) })
+      }
+    } else {
+      for (const word of text.matchAll(/([^()]+)\((\d+),(\d+)\)/g)) {
+        words.push({ text: word[1], startTime: Number(word[2]), endTime: Number(word[2]) + Number(word[3]) })
+      }
+    }
+    if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && w.endTime >= w.startTime && w.startTime >= time && w.endTime <= endTime + 100 && (!i || w.startTime >= words[i - 1].startTime))) {
+      result.push({ time, endTime: Math.max(endTime, ...words.map(w => w.endTime)), text: words.map(w => w.text).join(''), words })
+    }
+  }
+  return result.sort((a, b) => a.time - b.time)
 }
 
 /** 匹配 LRC 时间标签，如 [01:23.456] */

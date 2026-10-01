@@ -40,7 +40,7 @@ function buildLyricTextForGarbledCheck(cached: LyricData): string {
  * @param track - 当前播放歌曲
  */
 export async function getLyric(track: Track): Promise<LyricData> {
-  const cacheKey = `${track.source || 'kw'}_${track.songmid || track.id}`
+  const cacheKey = `amll_v1_${track.source || 'kw'}_${track.songmid || track.id}`
 
   // 1. 内存命中
   const memoryCached = memoryCache.get(cacheKey)

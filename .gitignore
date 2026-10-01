@@ -56,3 +56,5 @@ CeruMusic/
 !/README.md
 
 .shared/
+# Locally bundled lyric renderer (recreated by npm ci)
+src/components/lyrics/generated/

@@ -58,6 +58,12 @@ jobs:
         with:
           ruby-version: '3.2'
 
+      - name: Validate regression tests and TypeScript
+        run: |
+          npm run test:regression
+          npm run test:lyrics:web
+          npx tsc --noEmit
+
       - name: Install iOS gems
         run: bundle install --jobs 4 --retry 3
 
@@ -230,6 +236,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_flag.outputs.tag_name }}
+          target_commitish: ${{ github.sha }}
           files: ${{ env.IPA_NAME }}
           body: ${{ steps.release_flag.outputs.release_notes }}
           append_body: true

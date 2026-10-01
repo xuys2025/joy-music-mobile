@@ -1,3 +1,5 @@
+> **本 fork 的歌词功能**：Apple Music 风格歌词仅在 [feature/applemusic-lyrics](https://github.com/xuys2025/joy-music-mobile/tree/feature/applemusic-lyrics) 分支维护，不向原项目提交。集成 AMLL（AGPL-3.0-only），组合版本分发须遵守 AGPL；原项目 MIT 声明保留。构建、功能范围与许可见 [说明](docs/applemusic-lyrics.md)。
+
 <p align="center">
   <img src="assets/icon.png" width="100" height="100" alt="悦音" style="border-radius: 22px;" />
 </p>
