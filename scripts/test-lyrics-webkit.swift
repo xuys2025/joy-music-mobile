@@ -30,7 +30,7 @@ final class LyricHarness: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         window.orderFrontRegardless()
     }
 
-    func fail(_ message: String) {
+    func fail(_ message: String) -> Never {
         print("WEBKIT FAILURE: \(message)")
         fflush(stdout)
         exit(1)
