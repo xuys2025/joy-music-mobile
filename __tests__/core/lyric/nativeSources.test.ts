@@ -4,6 +4,7 @@ import { wyRequest } from '../../../src/core/discover/wyCrypto'
 import { encryptQrcHex } from '@applemusic-like-lyrics/lyric'
 import { deflate } from 'pako'
 import type { Track } from '../../../src/types/music'
+import fixtures from '../../fixtures/mrc.json'
 
 jest.mock('../../../src/core/discover/wyCrypto', () => ({ wyRequest: jest.fn() }))
 jest.mock('../../../src/core/lyric/wordSources', () => ({ enrichWordLyrics: jest.fn(async (_, baseline) => baseline) }))
@@ -89,6 +90,103 @@ test('a partial malformed YRC document falls back without deleting lyrics', asyn
   expect(result.lines).toHaveLength(3)
   expect(result.lines.every(line => !line.words)).toBe(true)
 })
+test('WY uses EAPI YRC even when the old Linux endpoint only returns plain lyrics', async () => {
+  request.mockResolvedValue({ data: { code: 200, lrc: { lyric: lrc } } })
+  ;(fetch as jest.Mock).mockResolvedValue(json({ code: 200, lrc: { lyric: lrc }, yrc: { lyric: '[1000,1000](1000,500,0)你(1500,500,0)好' } }))
+  const result = await fetchNativeLyric({ ...track, source: 'wy', songmid: '123' })
+  expect((fetch as jest.Mock).mock.calls[0][0]).toBe('https://interface3.music.163.com/eapi/song/lyric/v1')
+  expect(result.lines).toHaveLength(3)
+  expect(result.lines[0].words?.map(w => w.startTime)).toEqual([1000, 1500])
+})
+test('a partial EAPI YRC document preserves all plain rows without fabricated words', async () => {
+  ;(fetch as jest.Mock).mockResolvedValue(json({ code: 200, lrc: { lyric: lrc }, yrc: { lyric: '[1000,1000](1000,500,0)你(1500,500,0)好\n[4000,1000](4000,-10,0)坏' } }))
+  request.mockResolvedValue({ data: { code: 200, lrc: { lyric: lrc } } })
+  const result = await fetchNativeLyric({ ...track, source: 'wy', songmid: '123' })
+  expect(result.lines).toHaveLength(3)
+  expect(result.lines.every(line => !line.words)).toBe(true)
+})
+test('stalled EAPI is aborted and cannot overwrite the available legacy LRC later', async () => {
+  jest.useFakeTimers()
+  try {
+    let finish!: (response: any) => void
+    ;(fetch as jest.Mock).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    request.mockResolvedValue({ data: { code: 200, lrc: { lyric: lrc } } })
+    const pending = fetchNativeLyric({ ...track, source: 'wy', songmid: '123' })
+    await jest.advanceTimersByTimeAsync(20000)
+    const result = await pending
+    expect(result.lines).toHaveLength(3)
+    expect((fetch as jest.Mock).mock.calls[0][1].signal.aborted).toBe(true)
+    finish(json({ code: 200, yrc: { lyric: '[1000,1000](1000,500,0)你(1500,500,0)好' } }))
+    await Promise.resolve()
+    expect(result.lines.every(line => !line.words)).toBe(true)
+  } finally { jest.useRealTimers() }
+})
+test('legacy YRC can supplement a plain EAPI result for the same platform ID', async () => {
+  ;(fetch as jest.Mock).mockResolvedValue(json({ code: 200, lrc: { lyric: lrc } }))
+  request.mockResolvedValue({ data: { code: 200, yrc: { lyric: '[1000,1000](1000,500,0)你(1500,500,0)好' } } })
+  const result = await fetchNativeLyric({ ...track, source: 'wy', songmid: '123' })
+  expect(result.lines).toHaveLength(3)
+  expect(result.lines[0].words).toHaveLength(2)
+})
+
+const mgResource = { songId: '123', copyrightId: 'copyright', songName: 'Fixture', artists: [{ name: 'Singer' }], album: 'Album', length: '00:00:10', lrcUrl: 'https://example.test/lrc', mrcUrl: 'https://example.test/mrc' }
+test.each([false, true])('Migu validates resource identity and retains LRC when MRC is corrupt: %s', invalid => {
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('resourceinfo')
+    ? json({ code: '000000', resource: [{ ...mgResource, songId: 'wrong', copyrightId: 'wrong' }, mgResource] })
+    : { ok: true, text: async () => String(url).endsWith('/mrc') ? (invalid ? fixtures.invalid.cipher : fixtures.valid.cipher) : lrc })
+  return fetchNativeLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123', songId: undefined }).then(result => {
+    expect(result.lines).toHaveLength(3)
+    if (invalid) expect(result.lines.every(line => !line.words)).toBe(true)
+    else expect(result.lines[0].words?.map(w => w.startTime)).toEqual([1000, 1500])
+  })
+})
+test.each([{ songName: 'Fixture (Live)' }, { artists: [{ name: 'Other' }] }, { length: '00:00:15' }, { album: 'Other' }])('Migu cannot apply MRC from a conflicting recording: %p', mismatch => {
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('resourceinfo')
+    ? json({ code: '000000', resource: [{ ...mgResource, ...mismatch }] })
+    : { ok: true, text: async () => lrc })
+  return fetchNativeLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123' }).then(result => {
+    expect(result.lines).toHaveLength(3)
+    expect((fetch as jest.Mock).mock.calls.some(([url]) => String(url).endsWith('/mrc'))).toBe(false)
+  })
+})
+test('Migu rejects an unrelated resource even when it is the first or only result', async () => {
+  ;(fetch as jest.Mock).mockResolvedValue(json({ code: '000000', resource: [{ ...mgResource, songId: 'wrong', copyrightId: 'wrong' }] }))
+  const result = await fetchNativeLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123' })
+  expect(result.lines).toHaveLength(0)
+  expect((fetch as jest.Mock).mock.calls).toHaveLength(1)
+})
+test('Migu aborts a stalled MRC download while preserving the available plain LRC', async () => {
+  jest.useFakeTimers()
+  try {
+    ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('resourceinfo')
+      ? json({ code: '000000', resource: [mgResource] })
+      : String(url).endsWith('/mrc') ? new Promise(() => {}) : { ok: true, text: async () => lrc })
+    const pending = fetchLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123' })
+    await jest.advanceTimersByTimeAsync(20000)
+    const result = await pending
+    expect(result.lines).toHaveLength(3)
+    expect(result.lines.every(line => !line.words)).toBe(true)
+    expect((fetch as jest.Mock).mock.calls.find(([url]) => String(url).endsWith('/mrc'))[1].signal.aborted).toBe(true)
+  } finally { jest.useRealTimers() }
+})
+test('Migu accepts an exact resource with valid MRC even when its LRC download fails', async () => {
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('resourceinfo')
+    ? json({ code: '000000', resource: [mgResource] })
+    : String(url).endsWith('/mrc') ? { ok: true, text: async () => fixtures.valid.cipher } : { ok: false })
+  const result = await fetchNativeLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123' })
+  expect(result.lines).toHaveLength(2)
+  expect(result.lines[0].words).toBeUndefined()
+  expect(result.lines[1].words).toHaveLength(2)
+  expect(result.rawLrc).not.toContain('(1000,500)')
+})
+test('Migu resolves song and copyright aliases in one bounded official request', async () => {
+  ;(fetch as jest.Mock).mockImplementation(async url => String(url).includes('resourceinfo')
+    ? json({ code: '000000', resource: [mgResource] }) : { ok: true, text: async () => lrc })
+  await fetchNativeLyric({ ...track, id: 'mg_123', source: 'mg', songmid: '123', copyrightId: 'copyright', album: undefined })
+  const calls = (fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes('resourceinfo'))
+  expect(calls).toHaveLength(1)
+  expect(calls[0][1].body).toBe('resourceId=123%7Ccopyright')
+})
 const krcPayload = (raw: string) => {
   const key = [0x40,0x47,0x61,0x77,0x5e,0x32,0x74,0x47,0x51,0x36,0x31,0x2d,0xce,0xd2,0x6e,0x69]
   const bytes = deflate(raw).map((byte: number, i: number) => byte ^ key[i % 16])
@@ -117,9 +215,11 @@ test('native lyrics are published before optional enrichment completes', async (
   request.mockResolvedValue({ data: { code: 200, lrc: { lyric: lrc } } })
   let finish!: (value: unknown) => void
   ;(enrichWordLyrics as jest.Mock).mockImplementation((_, baseline) => new Promise(resolve => { finish = () => resolve(baseline) }))
-  const update = jest.fn()
+  let published!: () => void
+  const publication = new Promise<void>(resolve => { published = resolve })
+  const update = jest.fn(() => published())
   const pending = fetchLyric({ ...track, source: 'wy', songmid: '123' }, update)
-  for (let i = 0; i < 8; i++) await Promise.resolve()
+  await publication
   expect(update).toHaveBeenCalledWith(expect.objectContaining({ lines: expect.any(Array) }))
   finish(null)
   expect((await pending).lines).toHaveLength(3)

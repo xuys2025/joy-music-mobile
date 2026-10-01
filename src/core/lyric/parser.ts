@@ -50,15 +50,45 @@ export function parseTimedLyric(raw: string): LyricLine[] {
         if (word) words.push({ text: word, startTime: Number(token[1]), endTime: Number(token[1]) + Number(token[2]) })
       }
     } else {
-      for (const word of text.matchAll(/([^()]+)\((\d+),(\d+)\)/g)) {
-        words.push({ text: word[1], startTime: Number(word[2]), endTime: Number(word[2]) + Number(word[3]) })
+      let cursor = 0
+      for (const token of text.matchAll(/\((-?\d+),(-?\d+)\)/g)) {
+        // Only numeric timing tags delimit atoms; literal parentheses belong
+        // to the lyric text (also observed in Migu's English credits).
+        const word = text.slice(cursor, token.index)
+        if (!word) { words.length = 0; break }
+        words.push({ text: word, startTime: Number(token[1]), endTime: Number(token[1]) + Number(token[2]) })
+        cursor = token.index! + token[0].length
       }
+      if (text.slice(cursor).trim()) continue
     }
     if (words.length && Number.isFinite(endTime) && words.every((w, i) => Number.isFinite(w.startTime) && Number.isFinite(w.endTime) && validWordDuration(w) && w.startTime >= time && w.endTime <= endTime && (!i || w.startTime + 1 >= words[i - 1].endTime))) {
       result.push({ time, endTime: Math.max(endTime, ...words.map(w => w.endTime)), text: words.map(w => w.text).join(''), words })
     }
   }
   return result.sort((a, b) => a.time - b.time)
+}
+
+/** MRC includes title/credits as [0,0] rows with (0,0) atoms, never sung words.
+ * Preserve those rows as plain text; reject an incomplete or malformed vocal row.
+ */
+export function parseMrc(raw: string): LyricLine[] {
+  if (/\[offset:\s*[+-]?[1-9]\d*\s*\]/i.test(raw)) return []
+  const rows: LyricLine[] = []
+  for (const match of raw.matchAll(/^\[(-?\d+),(-?\d+)\]([^\r\n]*)/gm)) {
+    const time = Number(match[1]), duration = Number(match[2]), body = match[3]
+    const atoms = [...body.matchAll(/\((-?\d+),(-?\d+)\)/g)]
+    const text = body.replace(/\(-?\d+,-?\d+\)/g, '')
+    if (time === 0 && duration === 0 && atoms.length && atoms.every(a => Number(a[1]) === 0 && Number(a[2]) === 0)) {
+      rows.push({ time, text })
+      continue
+    }
+    const parsed = parseTimedLyric(match[0])
+    // Migu may append an untimed layout space after the last atom. Do not
+    // invent a timestamp for that space or discard otherwise complete words.
+    if (parsed.length !== 1 || parsed[0].text.trim() !== text.trim()) return []
+    rows.push(parsed[0])
+  }
+  return rows.sort((a, b) => a.time - b.time)
 }
 
 /** Parse decrypted KRC; preserve malformed rows as ordinary line lyrics. */

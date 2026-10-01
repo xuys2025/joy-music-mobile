@@ -5,12 +5,14 @@
  */
 
 import { Track } from '../../types/music'
-import { LyricLine, parseLrc, parseTimedLyric, parseKrc, parseKwWords, mergeLyricTranslation } from './parser'
+import { LyricLine, parseLrc, parseTimedLyric, parseMrc, parseKrc, parseKwWords, mergeLyricTranslation } from './parser'
 import { wyRequest } from '../discover/wyCrypto'
 import { inflate } from 'pako'
 import { decodeByIconvCompat } from './iconvCompat'
 import { decodeKrc, decodeQrc } from './codecs'
-import { mergeNativeTiming, sanitizeTiming, hasWordTiming, normalizeIdentity, normalizeArtists } from './accuracy'
+import { decodeMrc } from './mrc'
+import { fetchWyEapiLyric } from './wyEapi'
+import { mergeNativeTiming, sanitizeTiming, hasWordTiming, normalizeIdentity, normalizeArtists, sameRecordingMetadata } from './accuracy'
 import { lyricRequest, within } from './network'
 import { enrichWordLyrics } from './wordSources'
 
@@ -187,14 +189,14 @@ function parseJsonOrJsonp(input: string): any {
   }
 }
 
-async function requestJson<T = any>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await lyricRequest(url, init)
+async function requestJson<T = any>(url: string, init?: RequestInit, timeout = 15000): Promise<T> {
+  const resp = await lyricRequest(url, init, timeout)
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${url}`)
   return (await resp.json()) as T
 }
 
-async function requestText(url: string, init?: RequestInit): Promise<string> {
-  const resp = await lyricRequest(url, init)
+async function requestText(url: string, init?: RequestInit, timeout = 15000): Promise<string> {
+  const resp = await lyricRequest(url, init, timeout)
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${url}`)
   return resp.text()
 }
@@ -679,36 +681,46 @@ async function fetchKwLyric(songmid: string, duration = 0): Promise<LyricData> {
 
 /**
  * 获取 WY（网易云）歌词。
- * 通过已有 linuxapi 加密通道请求歌词接口。
+ * 与 LX 桌面版对齐：EAPI 获取 YRC，旧 linuxapi 通道作为有界回退。
  * @param songmid - 歌曲 ID
  */
-async function fetchWyLyric(songmid: string, duration = 0): Promise<LyricData> {
+function parseWyLyric(data: any, duration: number): LyricData {
+  if (data?.code !== 200) return EMPTY_LYRIC
+  const rawTimed = String(data?.yrc?.lyric || '')
+  const parsed = parseTimedLyric(rawTimed)
+  // A partially parsed document must not silently delete the corrupt rows.
+  const timed = parsed.length === [...rawTimed.matchAll(/^\[\d+,\d+\]/gm)].length ? parsed : []
+  const basic = buildLyricData(data?.lrc?.lyric || '', data?.tlyric?.lyric || '')
+  if (!timed.length) return basic
+  const rawTlrc = data?.ytlrc?.lyric || data?.tlyric?.lyric || ''
+  return { lines: mergeNativeTiming(mergeLyricTranslation(timed, parseLrc(rawTlrc)), basic.lines, duration),
+    rawLrc: data?.lrc?.lyric || rawTimed, rawTlrc }
+}
+
+async function fetchWyLegacyLyric(songmid: string, duration: number): Promise<LyricData> {
   const params = { id: songmid, lv: -1, tv: -1, rv: -1, kv: -1 }
   try {
     const resp = await wyRequest('https://music.163.com/api/song/lyric/v1', {
       ...params, yv: -1, ytv: -1, yrv: -1,
     })
-    if (resp.data?.code === 200) {
-      const data = resp.data
-      const rawTimed = String(data?.yrc?.lyric || '')
-      const parsed = parseTimedLyric(rawTimed)
-      // A partially parsed document must not silently delete the corrupt rows.
-      const timed = parsed.length === [...rawTimed.matchAll(/^\[\d+,\d+\]/gm)].length ? parsed : []
-      const basic = buildLyricData(data?.lrc?.lyric || '', data?.tlyric?.lyric || '')
-      if (timed.length) {
-        const rawTlrc = data?.ytlrc?.lyric || data?.tlyric?.lyric || ''
-        return {
-          lines: mergeNativeTiming(mergeLyricTranslation(timed, parseLrc(rawTlrc)), basic.lines, duration),
-          rawLrc: data?.lrc?.lyric || data?.yrc?.lyric || '', rawTlrc,
-        }
-      }
-      if (basic.lines.length) return basic
-    }
+    const data = parseWyLyric(resp.data, duration)
+    if (data.lines.length) return data
   } catch { /* The legacy endpoint remains available if YRC is unsupported. */ }
   const resp = await wyRequest('https://music.163.com/api/song/lyric', params)
   return resp.data?.code === 200
     ? buildLyricData(resp.data?.lrc?.lyric || '', resp.data?.tlyric?.lyric || '')
     : EMPTY_LYRIC
+}
+
+async function fetchWyLyric(songmid: string, duration = 0): Promise<LyricData> {
+  const primary = within(fetchWyEapiLyric(songmid).then(data => parseWyLyric(data, duration)), EMPTY_LYRIC, 22000)
+  // Start the old path concurrently so a slow primary cannot consume the entire
+  // 30-second native window and then erase an already available LRC fallback.
+  const legacy = within(fetchWyLegacyLyric(songmid, duration), EMPTY_LYRIC, 25000)
+  const data = await primary
+  if (hasWordTiming(data.lines)) return data
+  const fallback = await legacy
+  return data.lines.length ? { ...data, lines: mergeNativeTiming(fallback.lines, data.lines, duration) } : fallback
 }
 
 /**
@@ -849,21 +861,32 @@ async function fetchKgLyric(track: Track): Promise<LyricData> {
   return buildLyricData(rawLrc)
 }
 
-async function fetchMgResource(resourceId: string): Promise<any | null> {
+async function fetchMgResources(resourceIds: string[]): Promise<any[]> {
   const resp = await requestJson<any>(MG_RESOURCE_INFO_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: `resourceId=${encodeURIComponent(resourceId)}`,
-  })
-  if (resp?.code !== '000000') return null
+    // Official endpoint supports pipe-separated IDs (also used by LX desktop).
+    body: `resourceId=${encodeURIComponent(resourceIds.join('|'))}`,
+  }, 20000)
+  if (resp?.code !== '000000') return []
   const resourceList = Array.isArray(resp?.resource) ? resp.resource : []
-  return resourceList[0] ?? null
+  return resourceList.filter((item: any) => resourceIds.includes(String(item?.songId || ''))
+    || resourceIds.includes(String(item?.copyrightId || '')))
+}
+
+function mgRecordingMatches(track: Track, resource: any): boolean {
+  const parts = String(resource?.length || '').split(':')
+  const duration = parts.length >= 2 && parts.length <= 3 && parts.every(p => /^\d+$/.test(p))
+    ? parts.reduce((seconds, part) => seconds * 60 + Number(part), 0) * 1000 : 0
+  return sameRecordingMetadata(track, { ...track, title: String(resource?.songName || ''),
+    artist: Array.isArray(resource?.artists) ? resource.artists.map((a: any) => String(a?.name || '')).join('/') : '',
+    album: String(resource?.album || ''), duration })
 }
 
 /**
- * 获取 MG（咪咕）歌词（参考 CeruMusic：resourceinfo -> lrcUrl）。
+ * 获取 MG（咪咕）歌词：验证资源 ID 和版本，MRC 失败时保留普通 LRC。
  */
 async function fetchMgLyric(track: Track): Promise<LyricData> {
   const candidates: string[] = []
@@ -872,28 +895,25 @@ async function fetchMgLyric(track: Track): Promise<LyricData> {
   if (track.copyrightId) candidates.push(track.copyrightId)
 
   const dedupCandidates = Array.from(new Set(candidates.filter(Boolean)))
-  for (const resourceId of dedupCandidates) {
-    const resource = await fetchMgResource(resourceId)
-    if (!resource) continue
-
+  if (!dedupCandidates.length) return EMPTY_LYRIC
+  const resources = await within(fetchMgResources(dedupCandidates), [], 22000)
+  const resource = resources.find(r => r && mgRecordingMatches(track, r) && r.mrcUrl)
+    || resources.find(r => r?.lrcUrl)
+  if (resource) {
     const lrcUrl = String(resource?.lrcUrl || '')
-    if (!lrcUrl) continue
-
-    const rawLrc = (await requestText(lrcUrl, { headers: MG_TEXT_HEADERS })).trim()
-    if (!rawLrc) continue
-
     const trcUrl = String(resource?.trcUrl || '')
-    let rawTlrc = ''
-    if (trcUrl) {
-      try {
-        rawTlrc = (
-          await requestText(trcUrl, { headers: MG_TEXT_HEADERS })
-        ).trim()
-      } catch {
-        rawTlrc = ''
-      }
-    }
-    return buildLyricData(rawLrc, rawTlrc)
+    const mrcUrl = mgRecordingMatches(track, resource) ? String(resource?.mrcUrl || '') : ''
+    const getText = (url: string) => url
+      ? within(requestText(url, { headers: MG_TEXT_HEADERS }, 20000), '', 22000) : Promise.resolve('')
+    const [rawLrc, rawTlrc, encrypted] = await Promise.all([getText(lrcUrl), getText(trcUrl), getText(mrcUrl)])
+    const basic = buildLyricData(rawLrc.trim(), rawTlrc.trim())
+    try {
+      const timed = parseMrc(decodeMrc(encrypted))
+      const lines = mergeNativeTiming(mergeLyricTranslation(timed, parseLrc(rawTlrc)), basic.lines, track.duration)
+      if (hasWordTiming(lines)) return { lines, rawTlrc,
+        rawLrc: rawLrc || lines.map(line => `[${formatLrcTimestamp(line.time)}]${line.text}`).join('\n') }
+    } catch { /* Corrupt or unsupported MRC never removes a valid LRC. */ }
+    return basic
   }
   return EMPTY_LYRIC
 }
@@ -936,7 +956,9 @@ export async function fetchNativeLyric(track: Track): Promise<LyricData> {
 
 /** Display native lyrics first; optional enrichment cannot block playback or erase lyrics. */
 export async function fetchLyric(track: Track, onUpdate?: (data: LyricData) => void): Promise<LyricData> {
-  const native = await within(fetchNativeLyric(track), EMPTY_LYRIC, 30000)
+  // Migu needs resource resolution followed by a lyric download; both phases
+  // are bounded. Other providers retain their existing 30-second native limit.
+  const native = await within(fetchNativeLyric(track), EMPTY_LYRIC, track.source === 'mg' ? 45000 : 30000)
   const lines = sanitizeTiming(native.lines, track.duration)
   const basic: LyricData = { ...native, lines, fetchedAt: Date.now(),
     timingSource: hasWordTiming(lines) ? 'native' : undefined }

@@ -5,8 +5,10 @@ import vm from 'node:vm'
 import { build } from 'esbuild'
 import { encryptQrcHex } from '@applemusic-like-lyrics/lyric'
 import { deflate } from 'pako'
+import { readFile } from 'node:fs/promises'
+import { createDecipheriv } from 'node:crypto'
 
-const result = await build({ entryPoints: ['src/core/lyric/codecs.ts'], bundle: true, write: false,
+const result = await build({ stdin: { contents: `export * from './src/core/lyric/codecs'; export * from './src/core/lyric/mrc'; export { wyLyricEapiBody } from './src/core/lyric/wyEapi'`, resolveDir: process.cwd() }, bundle: true, write: false,
   platform: 'browser', format: 'iife', globalName: 'codecs', target: ['es2020'] })
 const context = vm.createContext({ atob, btoa, console })
 context.global = context
@@ -25,4 +27,11 @@ assert.equal(parsed.lines[0].text, '你好')
 assert.equal(parsed.lines[0].words[1].startTime, 1500)
 assert.ok(parsed.metadata.some(([key, values]) => key === 'ncmMusicId' && values.includes('123')))
 assert.throws(() => context.codecs.readTTML('<!DOCTYPE tt><tt/>'))
-process.stdout.write('Browser/Hermes-like codecs: encrypted QRC, compressed KRC and TTML passed without Node/DOM globals.\n')
+const fixtures = JSON.parse(await readFile('__tests__/fixtures/mrc.json', 'utf8'))
+for (const fixture of Object.values(fixtures)) assert.equal(context.codecs.decodeMrc(fixture.cipher), fixture.decoded)
+assert.equal(context.codecs.decodeMrc('f'.repeat(33)), '')
+const body = context.codecs.wyLyricEapiBody('185709')
+const decipher = createDecipheriv('aes-128-ecb', 'e82ckenh8dichen8', null)
+const request = Buffer.concat([decipher.update(Buffer.from(body.slice(7), 'hex')), decipher.final()]).toString()
+assert.equal(JSON.parse(request.split('-36cd479b6b5-')[1]).id, '185709')
+process.stdout.write('Browser/Hermes-like codecs: QRC, KRC, MRC, EAPI and TTML passed without Node/DOM globals.\n')

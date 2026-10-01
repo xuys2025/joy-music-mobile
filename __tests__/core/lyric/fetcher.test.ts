@@ -3,6 +3,9 @@ import { wyRequest } from '../../../src/core/discover/wyCrypto'
 import type { Track } from '../../../src/types/music'
 
 jest.mock('../../../src/core/discover/wyCrypto', () => ({ wyRequest: jest.fn() }))
+// These tests cover the legacy Linux fallback. EAPI is exercised independently
+// with fetch mocks in nativeSources.test.ts, never a live network request.
+jest.mock('../../../src/core/lyric/wyEapi', () => ({ fetchWyEapiLyric: jest.fn(async () => { throw new Error('offline fixture') }) }))
 const request = wyRequest as jest.Mock
 const track: Track = { id: 'test-song', songmid: 'test-song', source: 'wy', title: 'Fixture', artist: 'Fixture', duration: 10000, url: '' }
 const lrc = '[00:01]你好\n[00:03]世界'
