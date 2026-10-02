@@ -23,6 +23,8 @@ export interface SearchTracksOptions {
   source: DiscoverSourceId
   page?: number
   limit?: number
+  /** Metadata-only callers can skip additional artwork requests. Defaults to true. */
+  includeArtwork?: boolean
 }
 
 export interface SearchTracksPageResult {
@@ -63,7 +65,8 @@ const HOT_KEYWORDS_FALLBACK: string[] = [
   '伍佰',
 ]
 
-type SearchHandler = (query: string, page: number, limit: number) => Promise<SearchTracksPageResult>
+type SearchHandler = (query: string, page: number, limit: number,
+  options?: Pick<SearchTracksOptions, 'includeArtwork'>) => Promise<SearchTracksPageResult>
 type HotSearchHandler = (limit: number) => Promise<string[]>
 
 const SEARCH_HANDLERS: Partial<Record<DiscoverSourceId, SearchHandler>> = {
@@ -385,7 +388,8 @@ function mapKgTrack(item: any): Track | null {
   return track
 }
 
-async function searchKw(query: string, page: number, limit: number): Promise<SearchTracksPageResult> {
+async function searchKw(query: string, page: number, limit: number,
+  options?: Pick<SearchTracksOptions, 'includeArtwork'>): Promise<SearchTracksPageResult> {
   const resp = await withRetry(() =>
     httpRequest('https://search.kuwo.cn/r.s', {
       query: {
@@ -424,7 +428,7 @@ async function searchKw(query: string, page: number, limit: number): Promise<Sea
 
   // 与 CeruMusic 的 pic 逻辑保持一致：当搜索接口缺失封面时，按 songmid 兜底拉取。
   const missingCoverTracks = list.filter(item => !item.coverUrl && item.songmid)
-  if (missingCoverTracks.length) {
+  if (options?.includeArtwork !== false && missingCoverTracks.length) {
     const coverPairs = await Promise.all(
       missingCoverTracks.map(async item => ({
         id: item.id,
@@ -873,7 +877,7 @@ class MusicSearch {
       throw new Error(`Search source ${options.source} is not supported`)
     }
 
-    return handler(query, page, limit)
+    return handler(query, page, limit, { includeArtwork: options.includeArtwork })
   }
 
   /**

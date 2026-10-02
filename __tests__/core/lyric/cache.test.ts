@@ -15,8 +15,8 @@ test('same catalogue ID with another hash/duration/version never shares a valida
   for (const patch of [{ hash: 'another' }, { duration: 11000 }, { title: 'Fixture (Live)' }, { album: 'Other' }, { songId: '456' }])
     expect(lyricCacheKey({ ...track, ...patch })).not.toBe(lyricCacheKey(track))
 })
-test('the parser fix cannot reuse a fresh word_v2 fallback from an older install', () => {
-  expect(JSON.parse(lyricCacheKey(track))[0]).toBe('word_v4')
+test('expanded matching cannot reuse a fresh fallback from an older install', () => {
+  expect(JSON.parse(lyricCacheKey(track))[0]).toBe('word_v5')
 })
 test('concurrent views share one request and both receive the immediate LRC update', async () => {
   let finish!: (data: typeof basic) => void

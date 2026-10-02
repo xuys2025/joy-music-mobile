@@ -224,3 +224,22 @@ test('native lyrics are published before optional enrichment completes', async (
   finish(null)
   expect((await pending).lines).toHaveLength(3)
 })
+
+test('verified enrichment after eight seconds is retained while LRC is already displayed', async () => {
+  jest.useFakeTimers()
+  try {
+    request.mockResolvedValue({ data: { code: 200, lrc: { lyric: lrc } } })
+    ;(enrichWordLyrics as jest.Mock).mockImplementation((_, baseline) => new Promise(resolve => {
+      setTimeout(() => resolve({ ...baseline, timingSource: 'matched', lines: baseline.lines.map((line: any) => ({
+        ...line, endTime: line.time + 1000, words: [{ text: line.text[0], startTime: line.time, endTime: line.time + 500 },
+          { text: line.text.slice(1), startTime: line.time + 500, endTime: line.time + 1000 }] })) }), 20000)
+    }))
+    const update = jest.fn()
+    const pending = fetchLyric({ ...track, source: 'wy', songmid: '123' }, update)
+    await jest.advanceTimersByTimeAsync(8001)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update.mock.calls[0][0].lines[0].words).toBeUndefined()
+    await jest.advanceTimersByTimeAsync(12000)
+    expect((await pending).timingSource).toBe('matched')
+  } finally { jest.useRealTimers() }
+})

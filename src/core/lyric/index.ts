@@ -43,7 +43,7 @@ function buildLyricTextForGarbledCheck(cached: LyricData): string {
  * @param track - 当前播放歌曲
  */
 export function lyricCacheKey(track: Track): string {
-  return JSON.stringify(['word_v4', track.source || 'kw', track.songmid || track.id, track.songId || '',
+  return JSON.stringify(['word_v5', track.source || 'kw', track.songmid || track.id, track.songId || '',
     track.hash || '', track.duration, normalizeIdentity(track.title), normalizeIdentity(track.artist), normalizeIdentity(track.album || '')])
 }
 

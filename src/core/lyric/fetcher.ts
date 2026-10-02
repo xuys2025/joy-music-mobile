@@ -964,5 +964,5 @@ export async function fetchLyric(track: Track, onUpdate?: (data: LyricData) => v
     timingSource: hasWordTiming(lines) ? 'native' : undefined }
   onUpdate?.(basic)
   if (hasWordTiming(lines)) return basic
-  return await within(enrichWordLyrics(track, basic, fetchNativeLyric), basic, 8000)
+  return await enrichWordLyrics(track, basic, fetchNativeLyric)
 }
